@@ -1,0 +1,336 @@
+From 74f855422d30bc3aaf4076a710e5af3aa823611a Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Fri, 24 May 2019 15:24:46 +0800
+Subject: [PATCH 2/7] weston: modify desktop and ivi-shell
+
+spec:
+1.modify to support ivi-shell and to be compatible with ivi-extension
+2.Increase the initial window position setting function(xujinfeng)
+
+Change-Id: I1d6064d1d8d62004492f9f1108452c50680833a2
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ desktop-shell/shell.c                 | 17 +++++++++
+ ivi-shell/weston.ini.in               | 70 +++++++++++++++++++----------------
+ libweston-desktop/internal.h          |  3 ++
+ libweston-desktop/libweston-desktop.h |  4 ++
+ libweston-desktop/surface.c           | 28 ++++++++++++++
+ libweston-desktop/wl-shell.c          | 16 ++++++++
+ shared/weston-egl-ext.h               | 11 ++++++
+ 7 files changed, 117 insertions(+), 32 deletions(-)
+ mode change 100644 => 100755 ivi-shell/weston.ini.in
+
+diff --git a/desktop-shell/shell.c b/desktop-shell/shell.c
+index 9a44715..1203859 100644
+--- a/desktop-shell/shell.c
++++ b/desktop-shell/shell.c
+@@ -4213,6 +4213,9 @@ weston_view_set_initial_position(struct weston_view *view,
+ 	struct weston_output *output, *target_output = NULL;
+ 	struct weston_seat *seat;
+ 	pixman_rectangle32_t area;
++	struct weston_desktop_surface *desktop_surface;
++	struct weston_position window_position;
++	bool has_window_position = false;
+ 
+ 	/* As a heuristic place the new window on the same output as the
+ 	 * pointer. Falling back to the output containing 0, 0.
+@@ -4259,6 +4262,20 @@ weston_view_set_initial_position(struct weston_view *view,
+ 	if (range_y > 0)
+ 		y += random() % range_y;
+ 
++	desktop_surface = weston_surface_get_desktop_surface(view->surface);
++	if (desktop_surface) {
++		has_window_position = weston_desktop_surface_get_has_window_position(
++				desktop_surface);
++		if (has_window_position) {
++			window_position = weston_desktop_surface_get_window_position(
++					desktop_surface);
++			weston_view_set_position(view, window_position.x, window_position.y);
++		} else {
++			weston_view_set_position(view, x, y);
++		}
++		return;
++	}
++
+ 	weston_view_set_position(view, x, y);
+ }
+ 
+diff --git a/ivi-shell/weston.ini.in b/ivi-shell/weston.ini.in
+old mode 100644
+new mode 100755
+index ae3ac51..f95b345
+--- a/ivi-shell/weston.ini.in
++++ b/ivi-shell/weston.ini.in
+@@ -1,9 +1,16 @@
+ [core]
+-shell=ivi-shell.so
+-modules=hmi-controller.so
++modules=/usr/lib/weston/hmi-controller.so
++#xwayland=true
++shell=/usr/lib/weston/ivi-shell.so
++#gbm-format=xrgb2101010
++#require-input=true
++log-open=true
++use-overlay=true
++render-on-top=false
+ 
+ [ivi-shell]
+-ivi-shell-user-interface=weston-ivi-shell-user-interface
++#ivi-module=/usr/lib/weston/hmi-controller.so
++ivi-shell-user-interface=/usr/libexec/weston-ivi-shell-user-interface
+ 
+ #developermode=true
+ 
+@@ -19,83 +26,82 @@ application-layer-id=4000
+ 
+ transition-duration=300
+ 
+-background-image=@westondatadir@/background.png
++background-image=/usr/share/weston/background.png
+ background-id=1001
+-panel-image=@westondatadir@/panel.png
++panel-image=/usr/share/weston/panel.png
+ panel-id=1002
+ surface-id-offset=10
+-tiling-image=@westondatadir@/tiling.png
++tiling-image=/usr/share/weston/tiling.png
+ tiling-id=1003
+-sidebyside-image=@westondatadir@/sidebyside.png
++sidebyside-image=/usr/share/weston/sidebyside.png
+ sidebyside-id=1004
+-fullscreen-image=@westondatadir@/fullscreen.png
++fullscreen-image=/usr/share/weston/fullscreen.png
+ fullscreen-id=1005
+-random-image=@westondatadir@/random.png
++random-image=/usr/share/weston/random.png
+ random-id=1006
+-home-image=@westondatadir@/home.png
++home-image=/usr/share/weston/home.png
+ home-id=1007
+ workspace-background-color=0x99000000
+ workspace-background-id=2001
+-
+ [input-method]
+-path=weston-keyboard
++path=/usr/libexec/weston-keyboard
+ 
+ [ivi-launcher]
+ workspace-id=0
+ icon-id=4001
+-icon=@westondatadir@/icon_ivi_flower.png
+-path=@bindir@/weston-flower
++icon=/usr/share/weston/icon_ivi_flower.png
++path=/usr/bin/weston-flower
+ 
+ [ivi-launcher]
+ workspace-id=0
+ icon-id=4002
+-icon=@westondatadir@/icon_ivi_clickdot.png
+-path=@bindir@/weston-clickdot
++icon=/usr/share/weston/icon_ivi_clickdot.png
++path=/usr/bin/weston-clickdot
+ 
+ [ivi-launcher]
+ workspace-id=1
+ icon-id=4003
+-icon=@westondatadir@/icon_ivi_simple-egl.png
+-path=@bindir@/weston-simple-egl
++icon=/usr/share/weston/icon_ivi_simple-egl.png
++path=/usr/bin/weston-simple-egl
+ 
+ [ivi-launcher]
+ workspace-id=1
+ icon-id=4004
+-icon=@westondatadir@/icon_ivi_simple-shm.png
+-path=@bindir@/weston-simple-shm
++icon=/usr/share/weston/icon_ivi_simple-shm.png
++path=/usr/bin/weston-simple-shm
+ 
+ [ivi-launcher]
+ workspace-id=2
+ icon-id=4005
+-icon=@westondatadir@/icon_ivi_smoke.png
+-path=@bindir@/weston-smoke
++icon=/usr/share/weston/icon_ivi_smoke.png
++path=/usr/bin/weston-smoke
+ 
+ [ivi-launcher]
+ workspace-id=3
+ icon-id=4006
+-icon=@westondatadir@/icon_ivi_flower.png
+-path=@bindir@/weston-flower
++icon=/usr/share/weston/icon_ivi_flower.png
++path=/usr/bin/weston-flower
+ 
+ [ivi-launcher]
+ workspace-id=3
+ icon-id=4007
+-icon=@westondatadir@/icon_ivi_clickdot.png
+-path=@bindir@/weston-clickdot
++icon=/usr/share/weston/icon_ivi_clickdot.png
++path=/usr/bin/weston-clickdot
+ 
+ [ivi-launcher]
+ workspace-id=3
+ icon-id=4008
+-icon=@westondatadir@/icon_ivi_simple-egl.png
+-path=@bindir@/weston-simple-egl
++icon=/usr/share/weston/icon_ivi_simple-egl.png
++path=/usr/bin/weston-simple-egl
+ 
+ [ivi-launcher]
+ workspace-id=3
+ icon-id=4009
+-icon=@westondatadir@/icon_ivi_simple-shm.png
+-path=@bindir@/weston-simple-shm
++icon=/usr/share/weston/icon_ivi_simple-shm.png
++path=/usr/bin/weston-simple-shm
+ 
+ [ivi-launcher]
+ workspace-id=3
+ icon-id=4010
+-icon=@westondatadir@/icon_ivi_smoke.png
+-path=@bindir@/weston-smoke
++icon=/usr/share/weston/icon_ivi_smoke.png
++path=/usr/bin/weston-smoke
+diff --git a/libweston-desktop/internal.h b/libweston-desktop/internal.h
+index 564f7b3..c93bc20 100644
+--- a/libweston-desktop/internal.h
++++ b/libweston-desktop/internal.h
+@@ -196,6 +196,9 @@ void
+ weston_desktop_surface_set_geometry(struct weston_desktop_surface *surface,
+ 				    struct weston_geometry geometry);
+ void
++weston_desktop_surface_set_window_position(struct weston_desktop_surface *surface,
++				    struct weston_position window_position);
++void
+ weston_desktop_surface_set_relative_to(struct weston_desktop_surface *surface,
+ 				       struct weston_desktop_surface *parent,
+ 				       int32_t x, int32_t y, bool use_geometry);
+diff --git a/libweston-desktop/libweston-desktop.h b/libweston-desktop/libweston-desktop.h
+index a0fb938..ffd13de 100644
+--- a/libweston-desktop/libweston-desktop.h
++++ b/libweston-desktop/libweston-desktop.h
+@@ -190,6 +190,10 @@ bool
+ weston_desktop_surface_get_resizing(struct weston_desktop_surface *surface);
+ struct weston_geometry
+ weston_desktop_surface_get_geometry(struct weston_desktop_surface *surface);
++struct weston_position
++weston_desktop_surface_get_window_position(struct weston_desktop_surface *surface);
++bool
++weston_desktop_surface_get_has_window_position(struct weston_desktop_surface *surface);
+ struct weston_size
+ weston_desktop_surface_get_max_size(struct weston_desktop_surface *surface);
+ struct weston_size
+diff --git a/libweston-desktop/surface.c b/libweston-desktop/surface.c
+index cbfa5ee..cd93757 100644
+--- a/libweston-desktop/surface.c
++++ b/libweston-desktop/surface.c
+@@ -60,6 +60,8 @@ struct weston_desktop_surface {
+ 	struct wl_list resource_list;
+ 	bool has_geometry;
+ 	struct weston_geometry geometry;
++	bool has_window_position;
++	struct weston_position window_position;
+ 	struct {
+ 		char *title;
+ 		char *app_id;
+@@ -663,6 +665,24 @@ weston_desktop_surface_get_geometry(struct weston_desktop_surface *surface)
+ 	return weston_surface_get_bounding_box(surface->surface);
+ }
+ 
++WL_EXPORT struct weston_position
++weston_desktop_surface_get_window_position(struct weston_desktop_surface *surface)
++{
++	if (surface->has_window_position)
++		return surface->window_position;
++
++	struct weston_position window_position;
++	window_position.x = -1;
++	window_position.y = -1;
++	return window_position;
++}
++
++WL_EXPORT bool
++weston_desktop_surface_get_has_window_position(struct weston_desktop_surface *surface)
++{
++		return surface->has_window_position;
++}
++
+ WL_EXPORT struct weston_size
+ weston_desktop_surface_get_max_size(struct weston_desktop_surface *surface)
+ {
+@@ -733,6 +753,14 @@ weston_desktop_surface_set_geometry(struct weston_desktop_surface *surface,
+ }
+ 
+ void
++weston_desktop_surface_set_window_position(struct weston_desktop_surface *surface,
++				    struct weston_position window_position)
++{
++	surface->has_window_position = true;
++	surface->window_position = window_position;
++}
++
++void
+ weston_desktop_surface_set_relative_to(struct weston_desktop_surface *surface,
+ 				       struct weston_desktop_surface *parent,
+ 				       int32_t x, int32_t y, bool use_geometry)
+diff --git a/libweston-desktop/wl-shell.c b/libweston-desktop/wl-shell.c
+index 37720ac..b5496b6 100644
+--- a/libweston-desktop/wl-shell.c
++++ b/libweston-desktop/wl-shell.c
+@@ -387,6 +387,21 @@ weston_desktop_wl_shell_surface_protocol_set_class(struct wl_client *wl_client,
+ 	weston_desktop_surface_set_app_id(surface, class_);
+ }
+ 
++static void
++weston_desktop_wl_shell_surface_protocol_set_window_postion(struct wl_client *wl_client,
++						   struct wl_resource *resource,
++							 int32_t x, int32_t y)
++{
++	struct weston_desktop_surface *surface =
++		wl_resource_get_user_data(resource);
++
++	struct weston_position window_position;
++	window_position.x = x;
++	window_position.y = y;
++
++	weston_desktop_surface_set_window_position(surface, window_position);
++}
++
+ 
+ static const struct wl_shell_surface_interface weston_desktop_wl_shell_surface_implementation = {
+ 	.pong           = weston_desktop_wl_shell_surface_protocol_pong,
+@@ -399,6 +414,7 @@ static const struct wl_shell_surface_interface weston_desktop_wl_shell_surface_i
+ 	.set_maximized  = weston_desktop_wl_shell_surface_protocol_set_maximized,
+ 	.set_title      = weston_desktop_wl_shell_surface_protocol_set_title,
+ 	.set_class      = weston_desktop_wl_shell_surface_protocol_set_class,
++	.set_window_position = weston_desktop_wl_shell_surface_protocol_set_window_postion,
+ };
+ 
+ static const struct weston_desktop_surface_implementation weston_desktop_wl_shell_surface_internal_implementation = {
+diff --git a/shared/weston-egl-ext.h b/shared/weston-egl-ext.h
+index 0784ea2..9dace35 100644
+--- a/shared/weston-egl-ext.h
++++ b/shared/weston-egl-ext.h
+@@ -123,6 +123,17 @@ typedef struct wl_buffer * (EGLAPIENTRYP PFNEGLCREATEWAYLANDBUFFERFROMIMAGEWL) (
+ #define EGL_DMA_BUF_PLANE2_FD_EXT				0x3278
+ #define EGL_DMA_BUF_PLANE2_OFFSET_EXT				0x3279
+ #define EGL_DMA_BUF_PLANE2_PITCH_EXT				0x327A
++#define EGL_YUV_COLOR_SPACE_HINT_EXT                           0x327B
++#define EGL_SAMPLE_RANGE_HINT_EXT                              0x327C
++#define EGL_YUV_CHROMA_HORIZONTAL_SITING_HINT_EXT              0x327D
++#define EGL_YUV_CHROMA_VERTICAL_SITING_HINT_EXT                0x327E
++#define EGL_ITU_REC601_EXT                                     0x327F
++#define EGL_ITU_REC709_EXT                                     0x3280
++#define EGL_ITU_REC2020_EXT                                    0x3281
++#define EGL_YUV_FULL_RANGE_EXT                                 0x3282
++#define EGL_YUV_NARROW_RANGE_EXT                               0x3283
++#define EGL_YUV_CHROMA_SITING_0_EXT                            0x3284
++#define EGL_YUV_CHROMA_SITING_0_5_EXT                          0x3285
+ #endif
+ 
+ /* Define tokens from EGL_EXT_image_dma_buf_import_modifiers */
+-- 
+1.9.1
+

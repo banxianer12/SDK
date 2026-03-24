@@ -1,0 +1,290 @@
+From 769be25892d555ddc0ef5db46d48f870fc3e42fb Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Fri, 12 Jul 2019 10:11:59 +0800
+Subject: [PATCH 7/7] Support basic weston plane rendering(DE composite) for
+ weston layer(view)
+
+1.Only support the view using dmabuf;
+2.Only support the most basic cases, has NOT supported the complex cases
+
+Change-Id: I07c1e0f843b47caa575bd2e4fea8e8ff9e57e93d
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ libweston/compositor-drm.c | 78 +++++++++++++++++++++++++++++++++++-----------
+ libweston/compositor.c     | 20 ++++++++++++
+ libweston/compositor.h     |  7 ++---
+ 3 files changed, 82 insertions(+), 23 deletions(-)
+
+diff --git a/libweston/compositor-drm.c b/libweston/compositor-drm.c
+index 913be4d..a3ff617 100644
+--- a/libweston/compositor-drm.c
++++ b/libweston/compositor-drm.c
+@@ -84,6 +84,16 @@
+ #define DRM_MODE_FLAG_PIC_AR_MASK (0xF << DRM_MODE_FLAG_PIC_AR_BITS_POS)
+ #endif
+ 
++#ifdef SUNXI_WESTON
++enum sunxi_plane_alpha_mode {
++	PIXEL_ALPHA = 0,
++	GLOBAL_ALPHA = 1,
++	MIXED_ALPHA = 2,
++	NONE_ALPHA_MODE = 3, //decided by kernel
++	ALPHA_MODE_NUM,
++};
++#endif
++
+ /**
+  * Represents the values of an enum-type KMS property
+  */
+@@ -132,8 +142,7 @@ enum wdrm_plane_property {
+ #ifdef SUNXI_WESTON
+ 	WDRM_PLANE_ZPOS,
+ 	WDRM_PLANE_ALPHA_MODE,
+-	WDRM_PLANE_ALPHA_VALUE,
+-	WDRM_PLANE_ALPHA_BLEND_POSSIBLE,
++	WDRM_PLANE_ALPHA,
+ #endif
+ 	WDRM_PLANE__COUNT
+ };
+@@ -180,8 +189,7 @@ static const struct drm_property_info plane_props[] = {
+ #ifdef SUNXI_WESTON
+ 	[WDRM_PLANE_ZPOS] = { .name = "zpos", },
+ 	[WDRM_PLANE_ALPHA_MODE] = { .name = "alpha_mode", },
+-	[WDRM_PLANE_ALPHA_VALUE] = { .name = "galpha_value", },
+-	[WDRM_PLANE_ALPHA_BLEND_POSSIBLE] = { .name = "alpha_blend_possible", },
++	[WDRM_PLANE_ALPHA] = { .name = "alpha", },
+ #endif
+ 
+ };
+@@ -412,7 +420,7 @@ struct drm_plane_state {
+ 	int32_t dest_x, dest_y;
+ 	uint32_t dest_w, dest_h;
+ #ifdef SUNXI_WESTON
+-	int zpos, alpha_mode, alpha_value;
++	int zpos, alpha_mode, alpha;
+ #endif
+ 	bool complete;
+ 
+@@ -831,7 +839,7 @@ static int drm_plane_get_property_id(struct drm_plane *plane, const char *name)
+ 			return plane->props[i].prop_id;
+ 	}
+ 
+-	weston_log("can NOT find the property:%s\n", name);
++	weston_log("[ERROR]can NOT find the property:%s\n", name);
+ 	return -1;
+ }
+ 
+@@ -2366,15 +2374,6 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
+ 		if (ps->fb && !backend->sprites_hidden)
+ 			fb_id = ps->fb->fb_id;
+ 
+-#ifdef SUNXI_WESTON
+-		if (drm_plane_set_property(p, "zpos", ps->zpos) < 0)
+-			weston_log("[DRM-ERROR]set zpos property failed!\n");
+-		if (drm_plane_set_property(p, "alpha_mode", ps->alpha_mode) < 0)
+-			weston_log("[DRM-ERROR]set alpha_mode property failed!\n");
+-		if (drm_plane_set_property(p, "alpha_value", ps->alpha_value))
+-			weston_log("[DRM-ERROR]set alpha_value property failed!\n");
+-#endif
+-
+ 		ret = drmModeSetPlane(backend->drm.fd, p->plane_id,
+ 				      output->crtc_id, fb_id, flags,
+ 				      ps->dest_x, ps->dest_y,
+@@ -2558,7 +2557,16 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
+ 				      plane_state->dest_w);
+ 		ret |= plane_add_prop(req, plane, WDRM_PLANE_CRTC_H,
+ 				      plane_state->dest_h);
++#ifdef SUNXI_WESTON
++		ret |= plane_add_prop(req, plane, WDRM_PLANE_ZPOS,
++					  plane_state->zpos);
+ 
++		ret |= plane_add_prop(req, plane, WDRM_PLANE_ALPHA_MODE,
++					  plane_state->alpha_mode);
++
++		ret |= plane_add_prop(req, plane, WDRM_PLANE_ALPHA,
++					  plane_state->alpha);
++#endif
+ 		if (ret != 0) {
+ 			weston_log("couldn't set plane state\n");
+ 			return ret;
+@@ -3117,10 +3125,17 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
+ }
+ #endif
+ 
++#ifdef SUNXI_WESTON
++static struct drm_plane_state *
++drm_output_prepare_view(struct drm_output_state *output_state,
++				struct weston_view *ev,
++				enum drm_output_propose_state_mode mode)
++#else
+ static struct drm_plane_state *
+ drm_output_prepare_overlay_view(struct drm_output_state *output_state,
+ 				struct weston_view *ev,
+ 				enum drm_output_propose_state_mode mode)
++#endif
+ {
+ 	struct drm_output *output = output_state->output;
+ 	struct weston_compositor *ec = output->base.compositor;
+@@ -3138,9 +3153,11 @@ drm_output_prepare_overlay_view(struct drm_output_state *output_state,
+ 		return NULL;
+ 
+ 	wl_list_for_each(p, &b->plane_list, link) {
++#ifdef SUNXI_WESTON
++#else
+ 		if (p->type != WDRM_PLANE_TYPE_OVERLAY)
+ 			continue;
+-
++#endif
+ 		if (!drm_plane_is_available(p, output))
+ 			continue;
+ 
+@@ -3172,6 +3189,11 @@ drm_output_prepare_overlay_view(struct drm_output_state *output_state,
+ 
+ 		state->ev = ev;
+ 		state->output = output;
++#ifdef SUNXI_WESTON
++		state->zpos = ev->zorder;
++		state->alpha = (int)(ev->alpha * 255.0);
++		state->alpha_mode = NONE_ALPHA_MODE;
++#endif
+ 		if (!drm_plane_state_coords_for_view(state, ev)) {
+ 			drm_plane_state_put_back(state);
+ 			state = NULL;
+@@ -3573,11 +3595,8 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		if (ev->output_mask != (1u << output->base.id))
+ 			force_renderer = true;
+ 
+-#ifdef SUNXI_WESTON
+-#else
+ 		if (!ev->surface->buffer_ref.buffer)
+ 			force_renderer = true;
+-#endif
+ 
+ 		/* Ignore views we know to be totally occluded. */
+ 		pixman_region32_init(&clipped_view);
+@@ -3605,6 +3624,7 @@ drm_output_propose_state(struct weston_output *output_base,
+ 
+ #ifdef SUNXI_WESTON
+ #else
++
+ 		/* We do not control the stacking order of overlay planes;
+ 		 * the scanout plane is strictly stacked bottom and the cursor
+ 		 * plane top, but the ordering of overlay planes with respect
+@@ -3617,6 +3637,11 @@ drm_output_propose_state(struct weston_output *output_base,
+ #endif
+ 		pixman_region32_fini(&surface_overlap);
+ 
++#ifdef SUNXI_WESTON
++	/*in sunxi, we handle cursor/scan_out/overlay view as general view*/
++		if (!ps && !planes_ok)
++			force_renderer = true;
++#else
+ 		/* The cursor plane is 'special' in the sense that we can still
+ 		 * place it in the legacy API, and we gate that with a separate
+ 		 * cursors_are_broken flag. */
+@@ -3628,8 +3653,15 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		 * been placed in the cursor plane, which can handle alpha. */
+ 		if (!ps && !planes_ok)
+ 			force_renderer = true;
++#endif
+ 
+ #ifdef SUNXI_WESTON
++		/* in sunxi drm, CRTC is capable of alpha blending,
++		 * so we can assigned a view with alpha to a plane.
++		 * but if a view has both opaque area and alpha area,
++		 * plane can NOT handle it, we will NOT assigned this
++		 * view to plane.
++		 */
+ 		if ((!ps) && (!drm_view_is_opaque(ev))
+ 			&& pixman_region32_not_empty(&ev->surface->opaque)) {
+ 			force_renderer = true;
+@@ -3639,6 +3671,12 @@ drm_output_propose_state(struct weston_output *output_base,
+ 			force_renderer = true;
+ #endif
+ 
++
++#ifdef SUNXI_WESTON
++		/*in sunxi, we handle cursor/scan_out/overlay view as general view*/
++		if (!ps && !overlay_occluded && !force_renderer)
++			ps = drm_output_prepare_view(state, ev, mode);
++#else
+ 		/* Only try to place scanout surfaces in planes-only mode; in
+ 		 * mixed mode, we have already failed to place a view on the
+ 		 * scanout surface, forcing usage of the renderer on the
+@@ -3646,8 +3684,10 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		if (!ps && !force_renderer && !renderer_ok)
+ 			ps = drm_output_prepare_scanout_view(state, ev, mode);
+ 
++
+ 		if (!ps && !overlay_occluded && !force_renderer)
+ 			ps = drm_output_prepare_overlay_view(state, ev, mode);
++#endif
+ 
+ 		if (ps) {
+ 			/* If we have been assigned to an overlay or scanout
+diff --git a/libweston/compositor.c b/libweston/compositor.c
+index 9deb781..2bb0145 100644
+--- a/libweston/compositor.c
++++ b/libweston/compositor.c
+@@ -2365,6 +2365,9 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
+ 	pixman_region32_t output_damage;
+ 	int r;
+ 	uint32_t frame_time_msec;
++#ifdef SUNXI_WESTON
++	uint32_t i = 0, view_count = 0;
++#endif
+ 
+ 	if (output->destroying)
+ 		return 0;
+@@ -2374,6 +2377,23 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
+ 	/* Rebuild the surface list and update surface transforms up front. */
+ 	weston_compositor_build_view_list(ec);
+ 
++#ifdef SUNXI_WESTON
++	/*calculate the zorder for every weston view*/
++	i = 0;
++	view_count = 0;
++
++	wl_list_for_each(ev, &ec->view_list, link) {
++		++view_count;
++	}
++
++	wl_list_for_each(ev, &ec->view_list, link) {
++		ev->zorder = view_count - 1 - i;
++		if (ev->zorder < 0)
++			weston_log("[ERROR]zorder is WRONG!\n");
++		++i;
++	}
++#endif
++
+ 	if (output->assign_planes && !output->disable_planes) {
+ 		output->assign_planes(output, repaint_data);
+ 	} else {
+diff --git a/libweston/compositor.h b/libweston/compositor.h
+index 66a2e55..07822e8 100644
+--- a/libweston/compositor.h
++++ b/libweston/compositor.h
+@@ -1160,10 +1160,6 @@ struct weston_compositor {
+ 	weston_touch_calibration_save_func touch_calibration_save;
+ 	struct weston_layer calibrator_layer;
+ 	struct weston_touch_calibrator *touch_calibrator;
+-
+-#ifdef SUNXI_WESTON
+-	uint64_t plane_zorder;
+-#endif
+ };
+ 
+ struct weston_buffer {
+@@ -1329,6 +1325,9 @@ struct weston_view {
+ 	uint32_t psf_flags;
+ 
+ 	bool is_mapped;
++#ifdef SUNXI_WESTON
++	int zorder;
++#endif
+ };
+ 
+ struct weston_surface_state {
+-- 
+1.9.1
+

@@ -1,0 +1,69 @@
+menuconfig SURICATTA
+	bool "Suricatta"
+	depends on HAVE_LIBCURL
+	help
+	  Suricatta is a daemon mode of SWUpdate.
+
+	  Suricatta regularly polls a remote server for updates,
+	  downloads, and installs them. Thereafter, it reboots the
+	  system and reports the update status to the server, based
+	  on an update state variable currently stored in bootloader’s
+	  environment ensuring persistent storage across reboots. Some
+	  U-Boot script logics or U-Boot’s bootcount feature may be
+	  utilized to alter this update state variable, e.g., by
+	  setting it to reflect failure in case booting the newly
+	  flashed root file system has failed and a switchback had to
+	  be performed.
+
+if SURICATTA
+
+menu "Features"
+
+config SURICATTA_SSL
+	bool "SSL support"
+	default n
+	select CHANNEL_CURL_SSL
+	help
+	  Enable SSL and checksum verification support in suricatta.
+
+endmenu
+
+menu "Server"
+
+choice
+	prompt "Server Type"
+	default SURICATTA_HAWKBIT
+	help
+	  Choose the server type. Currently, just hawkBit is
+	  supported.
+
+config SURICATTA_HAWKBIT
+	bool "hawkBit support"
+	depends on HAVE_JSON_C
+	select CHANNEL_CURL
+	select JSON
+	help
+	  Support for hawkBit server.
+	  https://projects.eclipse.org/projects/iot.hawkbit
+
+comment "hawkBit support needs json-c"
+	depends on !HAVE_JSON_C
+
+config SURICATTA_GENERAL
+	bool "General HTTP support"
+	depends on HAVE_JSON_C
+	select CHANNEL_CURL
+	select JSON
+	help
+	  Support for Simple HTTP coded server
+	  The server uses HTTP return codes to detect if an update
+	  is available. See documentation for more details.
+
+endchoice
+
+endmenu
+
+endif
+
+comment "Suricatta daemon support needs libcurl"
+	depends on !HAVE_LIBCURL

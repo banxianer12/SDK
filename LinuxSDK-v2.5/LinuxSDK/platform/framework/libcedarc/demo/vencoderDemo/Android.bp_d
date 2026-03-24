@@ -1,0 +1,32 @@
+
+cc_binary {
+    name: "vencoderDemo",
+    defaults: ["libcdc_config_defaults"],
+    arch: {
+        arm: {
+            instruction_set: "arm",
+        },
+    },
+
+    srcs: [
+          "EncoderTest.c",
+          "avtimer.c"
+    ],
+    include_dirs: [
+        "frameworks/av/media/libcedarc/demo/vencoderDemo",
+        "frameworks/av/media/libcedarc",
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include/",
+    ],
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libvideoengine",
+        "libvencoder",
+        "libVE",
+        "libMemAdapter",
+        "libcdc_base",
+    ],
+    cflags: ["-Werror"],
+}

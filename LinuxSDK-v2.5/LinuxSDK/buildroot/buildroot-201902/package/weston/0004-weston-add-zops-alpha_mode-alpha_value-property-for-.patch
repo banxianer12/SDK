@@ -1,0 +1,141 @@
+From 4c61a3bb206b292549c0549425e9b7aac4a784ec Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Fri, 24 May 2019 16:03:15 +0800
+Subject: [PATCH 4/7] weston: add zops/alpha_mode/alpha_value property for
+ drm_plane
+
+Change-Id: I8886eecacd7d28c8dbe212795e588d31c466684d
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ libweston/compositor-drm.c | 62 +++++++++++++++++++++++++++++++++++++++++++++-
+ libweston/compositor.h     |  6 +++++
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/libweston/compositor-drm.c b/libweston/compositor-drm.c
+index 3891176..d49929e 100644
+--- a/libweston/compositor-drm.c
++++ b/libweston/compositor-drm.c
+@@ -129,6 +129,12 @@ enum wdrm_plane_property {
+ 	WDRM_PLANE_FB_ID,
+ 	WDRM_PLANE_CRTC_ID,
+ 	WDRM_PLANE_IN_FORMATS,
++#ifdef WESTON_USE_SUNXI_DRM
++	WDRM_PLANE_ZPOS,
++	WDRM_PLANE_ALPHA_MODE,
++	WDRM_PLANE_ALPHA_VALUE,
++	WDRM_PLANE_ALPHA_BLEND_POSSIBLE,
++#endif
+ 	WDRM_PLANE__COUNT
+ };
+ 
+@@ -171,6 +177,13 @@ static const struct drm_property_info plane_props[] = {
+ 	[WDRM_PLANE_FB_ID] = { .name = "FB_ID", },
+ 	[WDRM_PLANE_CRTC_ID] = { .name = "CRTC_ID", },
+ 	[WDRM_PLANE_IN_FORMATS] = { .name = "IN_FORMATS" },
++#ifdef WESTON_USE_SUNXI_DRM
++	[WDRM_PLANE_ZPOS] = { .name = "zpos", },
++	[WDRM_PLANE_ALPHA_MODE] = { .name = "alpha_mode", },
++	[WDRM_PLANE_ALPHA_VALUE] = { .name = "galpha_value", },
++	[WDRM_PLANE_ALPHA_BLEND_POSSIBLE] = { .name = "alpha_blend_possible", },
++#endif
++
+ };
+ 
+ /**
+@@ -398,7 +411,9 @@ struct drm_plane_state {
+ 	uint32_t src_w, src_h;
+ 	int32_t dest_x, dest_y;
+ 	uint32_t dest_w, dest_h;
+-
++#ifdef WESTON_USE_SUNXI_DRM
++	int zpos, alpha_mode, alpha_value;
++#endif
+ 	bool complete;
+ 
+ 	struct wl_list link; /* drm_output_state::plane_list */
+@@ -806,6 +821,42 @@ drm_property_info_free(struct drm_property_info *info, int num_props)
+ 	memset(info, 0, sizeof(*info) * num_props);
+ }
+ 
++#ifdef WESTON_USE_SUNXI_DRM
++static int drm_plane_get_property_id(struct drm_plane *plane, const char *name)
++{
++	int i;
++
++	for (i = 0; i < WDRM_PLANE__COUNT; i++) {
++		if (!strcmp(plane->props[i].name, name))
++			return plane->props[i].prop_id;
++	}
++
++	weston_log("can NOT find the property:%s\n", name);
++	return -1;
++}
++
++static int drm_plane_set_property(struct drm_plane *plane, const char *name, int value)
++{
++	int ret = 0, prop_id;
++	struct drm_backend *b = plane->backend;
++	int fd = b->drm.id;
++
++	prop_id = drm_plane_get_property_id(plane, name);
++	if (prop_id < 0)
++		return -1;
++
++	ret = drmModeObjectSetProperty(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, prop_id, value);
++	if (ret) {
++		weston_log("drmModeObjectSetProperty failed! name:%s value:%d ret:%d\n",
++				name, value, ret);
++		return -1;
++	}
++
++	return 0;
++}
++#endif
++
++
+ static void
+ drm_output_set_cursor(struct drm_output_state *output_state);
+ 
+@@ -2292,6 +2343,15 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
+ 		if (ps->fb && !backend->sprites_hidden)
+ 			fb_id = ps->fb->fb_id;
+ 
++#ifdef WESTON_USE_SUNXI_DRM
++		if (drm_plane_set_property(p, "zpos", ps->zpos) < 0)
++			weston_log("[DRM-ERROR]set zpos property failed!\n");
++		if (drm_plane_set_property(p, "alpha_mode", ps->alpha_mode) < 0)
++			weston_log("[DRM-ERROR]set alpha_mode property failed!\n");
++		if (drm_plane_set_property(p, "alpha_value", ps->alpha_value))
++			weston_log("[DRM-ERROR]set alpha_value property failed!\n");
++#endif
++
+ 		ret = drmModeSetPlane(backend->drm.fd, p->plane_id,
+ 				      output->crtc_id, fb_id, flags,
+ 				      ps->dest_x, ps->dest_y,
+diff --git a/libweston/compositor.h b/libweston/compositor.h
+index 8b7a102..ae95331 100644
+--- a/libweston/compositor.h
++++ b/libweston/compositor.h
+@@ -46,6 +46,8 @@ extern "C" {
+ #include "zalloc.h"
+ #include "timeline-object.h"
+ 
++#define WESTON_USE_SUNXI_DRM
++
+ struct weston_geometry {
+ 	int32_t x, y;
+ 	int32_t width, height;
+@@ -1160,6 +1162,10 @@ struct weston_compositor {
+ 	weston_touch_calibration_save_func touch_calibration_save;
+ 	struct weston_layer calibrator_layer;
+ 	struct weston_touch_calibrator *touch_calibrator;
++
++#ifdef WESTON_USE_SUNXI_DRM
++	uint64_t plane_zorder;
++#endif
+ };
+ 
+ struct weston_buffer {
+-- 
+1.9.1
+

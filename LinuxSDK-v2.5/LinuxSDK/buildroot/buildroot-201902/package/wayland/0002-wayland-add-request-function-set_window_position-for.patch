@@ -1,0 +1,34 @@
+From 06b62184d024d65afe8dbad3224c45cb889d35e1 Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Mon, 10 Jun 2019 14:03:47 +0800
+Subject: [PATCH 3/3] wayland: add request function set_window_position for
+ wl_shell_surface
+
+Change-Id: Icab358ca3bba75d3fac824a35fda25bce278559d
+---
+ protocol/wayland.xml | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/protocol/wayland.xml b/protocol/wayland.xml
+index 141038b..2b5c4a1 100644
+--- a/protocol/wayland.xml
++++ b/protocol/wayland.xml
+@@ -1230,6 +1230,15 @@
+       <arg name="class_" type="string" summary="surface class"/>
+     </request>
+ 
++    <request name="set_window_position">
++      <description summary="set window position">
++	You can set the absolute coordinates of the window, if not set,
++	it is the random coordinates.
++      </description>
++      <arg name="x" type="int" summary="window x coordinate"/>
++      <arg name="y" type="int" summary="window y coordinate"/>
++    </request>
++
+     <event name="ping">
+       <description summary="ping client">
+ 	Ping a client to check if it is receiving events and sending
+-- 
+1.9.1
+

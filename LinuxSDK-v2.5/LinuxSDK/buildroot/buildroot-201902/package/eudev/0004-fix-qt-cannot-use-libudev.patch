@@ -1,0 +1,22 @@
+diff --git a/src/libudev/libudev-monitor.c b/src/libudev/libudev-monitor.c
+index 614149c..e13557d 100644
+--- a/src/libudev/libudev-monitor.c
++++ b/src/libudev/libudev-monitor.c
+@@ -108,7 +108,7 @@ static struct udev_monitor *udev_monitor_new(struct udev *udev)
+ 
+ /* we consider udev running when /dev is on devtmpfs */
+ static bool udev_has_devtmpfs(struct udev *udev) {
+-
++#if 0
+         union file_handle_union h = FILE_HANDLE_INIT;
+         _cleanup_fclose_ FILE *f = NULL;
+         char line[LINE_MAX], *e;
+@@ -145,6 +145,8 @@ static bool udev_has_devtmpfs(struct udev *udev) {
+         }
+ 
+         return false;
++#endif
++        return true;
+ }
+ 
+ static void monitor_set_nl_address(struct udev_monitor *udev_monitor) {

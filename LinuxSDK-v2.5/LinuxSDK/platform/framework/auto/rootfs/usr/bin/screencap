@@ -1,0 +1,25 @@
+#!/bin/sh
+
+dispX=$1
+capName=$2
+
+echo "===useage==============="
+echo "screencap dispX filePath"
+echo "========================"
+
+if  [ $# == 2 ];  then
+	path=/tmp/$capName.bmp
+	echo "rm $path ok"
+	rm $path > /dev/null 2>&1
+	echo $dispX > /sys/class/disp/disp/attr/disp
+	echo $path > /sys/class/disp/disp/attr/capture_dump
+	ls -lah $path
+	echo "gen disp$dispX screen ok,pls get it in $path"
+else
+	path=/tmp/screencap.bmp
+	rm $path > /dev/null 2>&1
+	echo 0 > /sys/class/disp/disp/attr/disp
+	echo $path > /sys/class/disp/disp/attr/capture_dump
+	ls -lah $path
+	echo "gen disp0 screen ok,pls get it in $path"
+fi

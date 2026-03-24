@@ -1,0 +1,53 @@
+#!/bin/sh
+
+
+# Start all init scripts in /etc/init.d
+# executing them in numerical order.
+#
+for i in /etc/init.d/S??* ;do
+
+     # Ignore dangling symlinks (if any).
+     [ ! -f "$i" ] && continue
+
+     case "$i" in
+	*.sh)
+	    # Source shell script for speed.
+	    (
+		trap - INT QUIT TSTP
+		set start
+		. $i
+	    )
+	    ;;
+	*)
+	    # No sh extension, so fork subprocess.
+	    $i start
+	    ;;
+    esac
+done
+
+echo /sbin/mdev > /proc/sys/kernel/hotplug
+mdev -s
+
+ifconfig lo 127.0.0.1
+
+tinymix -D 0 1 0  > /dev/null
+tinymix -D 0 4 31 > /dev/null
+tinymix -D 0 5 1  > /dev/null
+tinymix -D 0 6 1  > /dev/null
+tinymix -D 0 11 1 > /dev/null
+tinymix -D 1 "I2S0IN Switch" 1  > /dev/null
+tinymix -D 1 "I2S1OUT Switch" 1  > /dev/null
+tinymix -D 1 "I2S2OUT Switch" 1  > /dev/null
+tinymix -D 1 "APBIF0 Src Select" I2S0_TXDIF    > /dev/null
+tinymix -D 1 "I2S1 Src Select" APBIF_TXDIF0  > /dev/null
+tinymix -D 1 "I2S2 Src Select" APBIF_TXDIF2  > /dev/null
+
+if [ ! -d /system/vendor/etc/ ];  then
+	mkdir -p /system/vendor/etc/
+fi
+ln -s /etc/firmware /system/vendor/etc/
+
+insmod /lib/modules/$(uname -r)/mali_kbase.ko
+/etc/adb_start.sh &
+. /etc/qtenv.sh
+

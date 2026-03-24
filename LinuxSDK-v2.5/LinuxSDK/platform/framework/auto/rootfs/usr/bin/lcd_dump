@@ -1,0 +1,228 @@
+#!/bin/bash
+# Program:
+#       This program get and set the value of LCD0_BASIC_TIMMING_REG.
+# History:
+# 2020/12/01    TangJx   First release
+#
+# Useage:
+# ===========================useage==================================================
+# ./lcd_dump.sh -g                       ---get all the param value                     
+# ./lcd_dump.sh -s lcd_x 100             ---set lcd_x to 100                            
+# ./lcd_dump.sh -s lcd_y 100             ---set lcd_y to 100                            
+# ./lcd_dump.sh -s lcd_hbp 100           ---set lcd_hbp to 100                          
+# ./lcd_dump.sh -s lcd_hspw 100          ---set lcd_hspw to 100                         
+# ===================================================================================
+
+op=$1
+reg=$2
+param=$3
+
+function print_help(){
+    echo "===========================useage=================================================="
+    echo "./lcd_dump.sh -g                       ---get all the param value                     ="
+    echo "./lcd_dump.sh -s lcd_x 1280            ---set lcd_x to 1280                           ="
+    echo "./lcd_dump.sh -s lcd_y 800             ---set lcd_y to 800                            ="
+    echo "./lcd_dump.sh -s lcd_hbp 100           ---set lcd_hbp to 100                          ="
+    echo "./lcd_dump.sh -s lcd_vbp 100           ---set lcd_vbp to 100                          ="
+    echo "./lcd_dump.sh -s lcd_hspw 100          ---set lcd_hspw to 100                         ="
+    echo "==================================================================================="
+
+    exit -1
+}
+function get_value(){
+    echo "TCON_LCD0 Base Address is 0x06511000"
+    echo 0x06511048 > dump
+    var=$(cat dump)
+    # echo "The LCD0_BASIC0_REG value is $var"
+    x=`expr $(($var>>16&0xFFF)) + 1`
+    y=`expr $(($var&0xFFF)) + 1`
+    echo "lcd_x        $x"
+    echo "lcd_y        $y"
+
+    echo 0x0651104c > dump
+    var=$(cat dump)
+    # echo "The LCD0_BASIC1_REG value is $var"
+    hbp=`expr $(($var&0xFFF)) + 1`
+    ht=`expr $(($var>>16&0x1FFF)) + 1`
+    echo "lcd_hbp      $hbp"
+    echo "lcd_ht       $ht"
+
+    echo 0x06511050 > dump
+    var=$(cat dump)
+    # echo "The LCD0_BASIC2_REG value is $var"
+    vbp=`expr $(($var&0xFFF)) + 1`
+    vt=`expr $(($var>>16&0x1FFF)) / 2`
+    echo "lcd_vbp      $vbp"
+    echo "lcd_vt       $vt"
+
+
+    echo 0x06511054 > dump
+    var=$(cat dump)
+    # echo "The LCD0_BASIC3_REG value is $var"
+    vspw=`expr $(($var&0x3FF)) + 1`
+    hspw=`expr $(($var>>16&0x3FF)) + 1`
+    echo "lcd_vspw     $vspw"
+    echo "lcd_hspw     $hspw"
+    a=`expr $vt - $y - $vbp`
+    b=`expr $ht - $x - $hbp`
+    echo "lcd_vt - lcd_y - lcd_vbp $a"
+    echo "lcd_ht - lcd_x - lcd_hbp $b"
+}
+
+function set_value_lcd_x(){
+    p=`expr $param - 1 `
+    q=$(($p<<16))
+    echo 0x06511048 > dump
+    var=$(cat dump)
+    var=$(($var&0xF000FFFF|$q))
+    var=$(printf '%x\n' $var)
+    echo 0x06511048 0x$var > write
+    # cat write
+    echo "set the lcd_x to $param"
+    get_value
+    exit -1
+}
+
+
+function set_value_lcd_y(){
+    p=`expr $param - 1 `
+    echo 0x06511048 > dump
+    var=$(cat dump)
+    var=$(($var&0xFFFFF000|$p))
+    var=$(printf '%x\n' $var)
+    echo 0x06511048 0x$var > write
+    
+    echo "set the lcd_y to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_hbp(){
+    p=`expr $param - 1 `
+    echo 0x0651104c > dump
+    var=$(cat dump)
+    var=$(($var&0xFFFFF000|$p))
+    var=$(printf '%x\n' $var)
+    echo 0x0651104c 0x$var > write
+    echo "set the lcd_hbp to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_ht(){
+    p=`expr $param - 1 `
+    q=$(($p<<16))
+    echo 0x0651104c > dump
+    var=$(cat dump)
+    var=$(($var&0xE000FFFF|$q))
+    var=$(printf '%x\n' $var)
+    echo 0x0651104c 0x$var > write
+
+
+
+    echo "set the lcd_ht to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_hspw(){
+    p=`expr $param - 1 `
+    q=$(($p<<16))
+    echo 0x06511054 > dump
+    var=$(cat dump)
+    var=$(($var&0xFC00FFFF|$q))
+    var=$(printf '%x\n' $var)
+    echo 0x06511054 0x$var > write
+    echo "set the lcd_hspw to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_vbp(){
+    p=`expr $param - 1 `
+    echo 0x06511050 > dump
+    var=$(cat dump)
+    var=$(($var&0xFFFFF000|$p))
+    var=$(printf '%x\n' $var)
+    echo 0x06511050 0x$var > write
+    echo "set the lcd_vbp to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_vt(){
+    p=`expr $param \* 2 `
+    q=$(($p<<16))
+    echo 0x06511050 > dump
+    var=$(cat dump)
+    var=$(($var&0xE000FFFF|$q))
+    var=$(printf '%x\n' $var)
+    echo 0x06511050 0x$var > write
+    echo "set the lcd_vt to $param"
+    get_value
+    exit -1
+}
+
+function set_value_lcd_vspw(){
+    p=`expr $param - 1 `
+    echo 0x06511054 > dump
+    var=$(cat dump)
+    var=$(($var&0xFFFFFC00|$p))
+    var=$(printf '%x\n' $var)
+    echo 0x06511054 0x$var > write
+    echo "set the lcd_vspw to $param"
+    get_value
+    exit -1
+}
+if  [ $# -lt 1 ];  then
+    print_help
+elif  [ $# -gt 6 ];  then
+    print_help
+fi
+
+# get all value of LCD0_BASIC_TIMMING_REG
+
+
+cd /sys/class/sunxi_dump
+
+
+
+if  [ $# == 1 ];  then
+    if  [ $op = '-g' ];  then
+        get_value
+    elif [ $op = '-s' ];  then
+        echo "please input the reg's name and params"
+        print_help
+    else
+        print_help
+    fi
+elif  [ $# == 2 ]; then
+        print_help
+elif  [ $# == 3 ]; then
+    if  [ $op = '-s' ];  then
+        if  [ $reg = 'lcd_x'  ]; then
+            set_value_lcd_x
+        elif    [ $reg = 'lcd_y' ]; then
+            set_value_lcd_y
+        elif    [ $reg = 'lcd_hbp' ]; then
+            set_value_lcd_hbp
+        elif    [ $reg = 'lcd_ht' ]; then
+            set_value_lcd_ht
+        elif    [ $reg = 'lcd_hspw' ]; then
+            set_value_lcd_hspw
+        elif    [ $reg = 'lcd_vbp' ]; then
+            set_value_lcd_vbp
+        elif    [ $reg = 'lcd_vt' ]; then
+            set_value_lcd_vt
+        elif    [ $reg = 'lcd_vspw' ]; then
+            set_value_lcd_vspw
+        else
+            echo "This reg can't be set"
+        fi
+
+    else
+        print_help
+    fi
+else
+    echo "input param is $# error!!!"
+fi

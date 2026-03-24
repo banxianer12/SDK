@@ -1,0 +1,5 @@
+--- board/sun50iw9p1/commit_info.h
++++ board/sun50iw9p1/commit_info.h
+@@ -1 +1 @@
+-#define CI_INFO "8b62e3eec1"
++#define CI_INFO "445e53f"

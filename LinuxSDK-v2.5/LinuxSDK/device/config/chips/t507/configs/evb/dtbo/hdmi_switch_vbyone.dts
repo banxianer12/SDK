@@ -1,0 +1,81 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+
+  compatible = "board_manufacturer,board_model";
+
+  /* These properties are examples */
+  board_id = <0x00000006>;
+  board_rev = <0x00000000>;
+  another_hw_information = "some_data";
+  soc_id = <0x68000000>;
+
+};
+
+&soc {
+	dtbo_version = <0x00000001>;
+	dtbo{
+		compatible = "allwinner,sunxi-dtbo";
+		dtbo_type = <6>;
+	};
+
+	disp: disp@01000000 {
+		disp_init_enable         = <1>;
+		disp_mode                = <0>;
+
+		screen0_output_type      = <3>;
+		screen0_output_mode      = <34>;
+
+		screen1_output_type      = <1>;
+		screen1_output_mode      = <4>;
+
+		screen0_output_format    = <3>;
+		screen0_output_bits      = <0>;
+		screen0_output_eotf      = <4>;
+		screen0_output_cs        = <257>;
+		screen0_output_dvi_hdmi  = <2>;
+		screen0_output_range     = <2>;
+		screen0_output_scan      = <0>;
+		screen0_output_aspect_ratio = <8>;
+
+
+		dev0_output_type         = <4>;
+		dev0_output_mode         = <34>;
+		dev0_screen_id           = <0>;
+		dev0_do_hpd              = <1>;
+
+		dev1_output_type         = <1>;
+		dev1_output_mode         = <4>;
+		dev1_screen_id           = <1>;
+		dev1_do_hpd              = <0>;
+
+		def_output_dev           = <0>;
+		hdmi_mode_check          = <1>;
+
+		fb0_format               = <0>;
+		fb0_width                = <1280>;
+		fb0_height               = <800>;
+
+		fb1_format               = <0>;
+		fb1_width                = <0>;
+		fb1_height               = <0>;
+		chn_cfg_mode             = <1>;
+
+		disp_para_zone           = <1>;
+		/* VCC-LCD */
+		dc1sw-supply = <&reg_sw>;
+		/* VCC-LVDS and VCC-HDMI */
+		bldo1-supply = <&reg_bldo1>;
+		/* VCC-TV */
+		cldo4-supply = <&reg_cldo4>;
+	};
+
+	gmac0: eth@05020000 {
+		status = "disabled";
+	};
+
+	lcd0: lcd0@01c0c000 {
+		lcd_power;
+	};
+};

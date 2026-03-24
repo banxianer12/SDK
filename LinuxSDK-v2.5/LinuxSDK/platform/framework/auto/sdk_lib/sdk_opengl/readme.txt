@@ -1,0 +1,7 @@
+修改思路：
+1.在info_aframe加一个锁g_dmafd_mutex，锁camera_dmafd全局变量，因为这个变量在两个线程里都有用到
+2.把eglClientWaitSyncKHR从gpu渲染线程移到info_aframe中，不让gpu线程阻塞
+3.在gpu线程中创建sync，每个dmafd对应一个sync
+
+修改逻辑是：以前没有给camera_dmafd加锁的话，有可能camera线程送过去的dmafd和gpu线程使用过程中的fd不一样，所以加锁。
+然后waitsync是在camera线程第二次要送给gpu的时候做，如果gpu还没处理完，就等，如果处理完了，就可以继续用。

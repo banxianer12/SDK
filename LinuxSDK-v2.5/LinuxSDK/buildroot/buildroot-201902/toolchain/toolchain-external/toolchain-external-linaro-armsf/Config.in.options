@@ -1,0 +1,9 @@
+if BR2_TOOLCHAIN_EXTERNAL_LINARO_ARMSF
+
+config BR2_TOOLCHAIN_EXTERNAL_PREFIX
+	default "arm-linux-gnueabi"
+
+config BR2_PACKAGE_PROVIDES_TOOLCHAIN_EXTERNAL
+	default "toolchain-external-linaro-armsf"
+
+endif

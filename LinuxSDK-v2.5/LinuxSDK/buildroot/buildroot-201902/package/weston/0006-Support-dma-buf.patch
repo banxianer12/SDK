@@ -1,0 +1,804 @@
+From 519c36270be3f382c486294c7f665ff0a1758c52 Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Thu, 11 Jul 2019 09:24:19 +0800
+Subject: [PATCH 6/7] Support dma buf
+
+Change-Id: Ia227d9bd254597f7c85a045fdd04b4c3ab83c6d0
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ clients/simple-dmabuf-drm.c | 360 +++++++++++++++++++++++++++++++++++++++++++-
+ configure.ac                |   6 +-
+ libweston/compositor-drm.c  | 160 ++++++++++++++++++--
+ libweston/gl-renderer.c     |   4 +
+ libweston/linux-dmabuf.c    |   5 +
+ 5 files changed, 518 insertions(+), 17 deletions(-)
+
+diff --git a/clients/simple-dmabuf-drm.c b/clients/simple-dmabuf-drm.c
+index bd0f922..dbc38cf 100644
+--- a/clients/simple-dmabuf-drm.c
++++ b/clients/simple-dmabuf-drm.c
+@@ -73,6 +73,17 @@ struct buffer;
+ 
+ #define ALIGN(v, a) ((v + a - 1) & ~(a - 1))
+ 
++#ifdef SUNXI_WESTON
++struct sunxi_drm_bo {
++	uint32_t handles[4]; /*gem handle*/
++	uint32_t pitches[4];
++	uint32_t sizes[4];
++	uint8_t *vaddrs[4];
++
++	uint32_t fb_id;
++};
++#endif
++
+ struct display {
+ 	struct wl_display *display;
+ 	struct wl_registry *registry;
+@@ -105,6 +116,10 @@ struct buffer {
+ 	struct drm_device *dev;
+ 	int drm_fd;
+ 
++#ifdef SUNXI_WESTON
++	struct sunxi_drm_bo *sunxi_bo;
++#endif
++
+ #ifdef HAVE_LIBDRM_INTEL
+ 	drm_intel_bufmgr *bufmgr;
+ 	drm_intel_bo *intel_bo;
+@@ -161,6 +176,310 @@ static const struct wl_buffer_listener buffer_listener = {
+ 	buffer_release
+ };
+ 
++#ifdef SUNXI_WESTON
++int drm_get_bpp(unsigned int format)
++{
++	switch (format) {
++	case DRM_FORMAT_NV12:
++	case DRM_FORMAT_NV21:
++	case DRM_FORMAT_NV16:
++	case DRM_FORMAT_NV61:
++	case DRM_FORMAT_YUV420:
++	case DRM_FORMAT_YVU420:
++	case DRM_FORMAT_YUV422:
++	case DRM_FORMAT_YVU422:
++		return 8;
++
++	case DRM_FORMAT_ARGB4444:
++	case DRM_FORMAT_XRGB4444:
++	case DRM_FORMAT_ABGR4444:
++	case DRM_FORMAT_XBGR4444:
++	case DRM_FORMAT_RGBA4444:
++	case DRM_FORMAT_RGBX4444:
++	case DRM_FORMAT_BGRA4444:
++	case DRM_FORMAT_BGRX4444:
++	case DRM_FORMAT_ARGB1555:
++	case DRM_FORMAT_XRGB1555:
++	case DRM_FORMAT_ABGR1555:
++	case DRM_FORMAT_XBGR1555:
++	case DRM_FORMAT_RGBA5551:
++	case DRM_FORMAT_RGBX5551:
++	case DRM_FORMAT_BGRA5551:
++	case DRM_FORMAT_BGRX5551:
++	case DRM_FORMAT_RGB565:
++	case DRM_FORMAT_BGR565:
++	case DRM_FORMAT_UYVY:
++	case DRM_FORMAT_VYUY:
++	case DRM_FORMAT_YUYV:
++	case DRM_FORMAT_YVYU:
++		return 16;
++
++	case DRM_FORMAT_BGR888:
++	case DRM_FORMAT_RGB888:
++		return 24;
++
++	case DRM_FORMAT_ARGB8888:
++	case DRM_FORMAT_XRGB8888:
++	case DRM_FORMAT_ABGR8888:
++	case DRM_FORMAT_XBGR8888:
++	case DRM_FORMAT_RGBA8888:
++	case DRM_FORMAT_RGBX8888:
++	case DRM_FORMAT_BGRA8888:
++	case DRM_FORMAT_BGRX8888:
++	case DRM_FORMAT_ARGB2101010:
++	case DRM_FORMAT_XRGB2101010:
++	case DRM_FORMAT_ABGR2101010:
++	case DRM_FORMAT_XBGR2101010:
++	case DRM_FORMAT_RGBA1010102:
++	case DRM_FORMAT_RGBX1010102:
++	case DRM_FORMAT_BGRA1010102:
++	case DRM_FORMAT_BGRX1010102:
++		return 32;
++
++	default:
++		fprintf(stderr, "unsupported format 0x%08x\n", format);
++	}
++}
++
++
++unsigned int drm_get_virtual_height(unsigned int format,
++				unsigned int height)
++{
++	switch (format) {
++	case DRM_FORMAT_NV12:
++	case DRM_FORMAT_NV21:
++	case DRM_FORMAT_YUV420:
++	case DRM_FORMAT_YVU420:
++		return (height * 3 / 2);
++
++	case DRM_FORMAT_NV16:
++	case DRM_FORMAT_NV61:
++	case DRM_FORMAT_YUV422:
++	case DRM_FORMAT_YVU422:
++		return (height * 2);
++	}
++
++	return height;
++}
++
++static int drm_get_handle_pitch_offset_size_vaddr(unsigned int format,
++	unsigned int hdl, unsigned int height, unsigned int pitch,
++	unsigned char *vaddr, unsigned int *handles, unsigned int *pitches,
++	unsigned int *offsets, unsigned int *sizes, unsigned char **vaddrs)
++{
++	switch (format) {
++	case DRM_FORMAT_UYVY:
++	case DRM_FORMAT_VYUY:
++	case DRM_FORMAT_YUYV:
++	case DRM_FORMAT_YVYU:
++		offsets[0] = 0;
++		handles[0] = hdl;
++		pitches[0] = pitch;
++
++		sizes[0] = pitch * height;
++		vaddrs[0] = vaddr;
++
++		return 0;
++
++	case DRM_FORMAT_NV12:
++	case DRM_FORMAT_NV21:
++	case DRM_FORMAT_NV16:
++	case DRM_FORMAT_NV61:
++		offsets[0] = 0;
++		handles[0] = hdl;
++		pitches[0] = pitch;
++		pitches[1] = pitches[0];
++		offsets[1] = pitches[0] * height;
++		handles[1] = hdl;
++
++		vaddrs[0] = vaddr;
++		vaddrs[1] = vaddr + offsets[1];
++		sizes[0] = offsets[1];
++		sizes[1] = sizes[0];
++
++		return 0;
++
++	case DRM_FORMAT_YUV420:
++	case DRM_FORMAT_YVU420:
++		offsets[0] = 0;
++		handles[0] = hdl;
++		pitches[0] = pitch;
++		pitches[1] = pitches[0] / 2;
++		offsets[1] = pitches[0] * height;
++		handles[1] = hdl;
++		pitches[2] = pitches[1];
++		offsets[2] = offsets[1] + pitches[1] * height / 2;
++		handles[2] = hdl;
++
++		vaddrs[0] = vaddr;
++		vaddrs[1] = vaddr + offsets[1];
++		vaddrs[2] = vaddr + offsets[2];
++
++		sizes[0] = offsets[1];
++		sizes[1] = pitches[1] * height / 2;
++		sizes[2] = sizes[1];
++
++		return 0;
++
++	case DRM_FORMAT_YUV422:
++	case DRM_FORMAT_YVU422:
++		offsets[0] = 0;
++		handles[0] = hdl;
++		pitches[0] = pitch;
++		pitches[1] = pitches[0] / 2;
++		offsets[1] = pitches[0] * height;
++		handles[1] = hdl;
++		pitches[2] = pitches[1];
++		offsets[2] = offsets[1] + pitches[1] * height;
++		handles[2] = hdl;
++
++		vaddrs[0] = vaddr;
++		vaddrs[1] = vaddr + offsets[1];
++		vaddrs[2] = vaddr + offsets[2];
++
++		sizes[0] = offsets[1];
++		sizes[1] = pitches[1] * height;
++		sizes[2] = sizes[1];
++
++	return 0;
++
++	case DRM_FORMAT_ARGB4444:
++	case DRM_FORMAT_XRGB4444:
++	case DRM_FORMAT_ABGR4444:
++	case DRM_FORMAT_XBGR4444:
++	case DRM_FORMAT_RGBA4444:
++	case DRM_FORMAT_RGBX4444:
++	case DRM_FORMAT_BGRA4444:
++	case DRM_FORMAT_BGRX4444:
++	case DRM_FORMAT_ARGB1555:
++	case DRM_FORMAT_XRGB1555:
++	case DRM_FORMAT_ABGR1555:
++	case DRM_FORMAT_XBGR1555:
++	case DRM_FORMAT_RGBA5551:
++	case DRM_FORMAT_RGBX5551:
++	case DRM_FORMAT_BGRA5551:
++	case DRM_FORMAT_BGRX5551:
++	case DRM_FORMAT_RGB565:
++	case DRM_FORMAT_BGR565:
++	case DRM_FORMAT_BGR888:
++	case DRM_FORMAT_RGB888:
++	case DRM_FORMAT_ARGB8888:
++	case DRM_FORMAT_XRGB8888:
++	case DRM_FORMAT_ABGR8888:
++	case DRM_FORMAT_XBGR8888:
++	case DRM_FORMAT_RGBA8888:
++	case DRM_FORMAT_RGBX8888:
++	case DRM_FORMAT_BGRA8888:
++	case DRM_FORMAT_BGRX8888:
++	case DRM_FORMAT_ARGB2101010:
++	case DRM_FORMAT_XRGB2101010:
++	case DRM_FORMAT_ABGR2101010:
++	case DRM_FORMAT_XBGR2101010:
++	case DRM_FORMAT_RGBA1010102:
++	case DRM_FORMAT_RGBX1010102:
++	case DRM_FORMAT_BGRA1010102:
++	case DRM_FORMAT_BGRX1010102:
++		offsets[0] = 0;
++		handles[0] = hdl;
++		pitches[0] = pitch;
++
++		vaddrs[0] = vaddr;
++		sizes[0] = pitch * height;
++
++		return 0;
++	}
++
++	return -1;
++}
++
++
++
++static int sunxi_alloc_bo(struct buffer *my_buf)
++{
++	int ret;
++	struct drm_mode_create_dumb create;
++
++	memset(&create, 0, sizeof(struct drm_mode_create_dumb));
++
++	my_buf->sunxi_bo = malloc(sizeof(struct sunxi_drm_bo));
++	if (!my_buf->sunxi_bo) {
++		printf("[ERROR]: malloc for sunxi bo failed\n");
++		return 0;
++	}
++
++	memset(my_buf->sunxi_bo, 0, sizeof(struct sunxi_drm_bo));
++
++	create.width = my_buf->width;
++	create.height = drm_get_virtual_height(my_buf->format, my_buf->height);
++	create.bpp = drm_get_bpp(my_buf->format);
++	ret = drmIoctl(my_buf->drm_fd, DRM_IOCTL_MODE_CREATE_DUMB, &create);
++	if (ret < 0) {
++		free(my_buf->sunxi_bo);
++		printf("[ERROR]DRM_IOCTL_MODE_CREATE_DUMB failed\n");
++		return 0;
++	}
++
++	my_buf->sunxi_bo->handles[0] = create.handle;
++	my_buf->sunxi_bo->pitches[0] = create.pitch;
++	my_buf->sunxi_bo->sizes[0] = create.pitch * my_buf->height;
++
++	my_buf->gem_handle = create.handle;
++	my_buf->stride = create.pitch;
++
++	return 1;
++
++}
++
++static void sunxi_free_bo(struct buffer *my_buf)
++{
++	struct drm_mode_destroy_dumb destroy;
++
++	memset(&destroy, 0, sizeof(struct drm_mode_destroy_dumb));
++	destroy.handle = my_buf->sunxi_bo->handles[0];
++	drmIoctl(my_buf->drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy);
++	free(my_buf->sunxi_bo);
++}
++
++static int sunxi_map_bo(struct buffer *my_buf)
++{
++	int ret;
++	struct drm_mode_map_dumb map;
++
++	memset(&map, 0, sizeof(struct drm_mode_map_dumb));
++	map.handle = my_buf->sunxi_bo->handles[0];
++	ret = drmIoctl(my_buf->drm_fd, DRM_IOCTL_MODE_MAP_DUMB, &map);
++	if (ret < 0) {
++		printf("[ERROR]DRM_IOCTL_MODE_MAP_DUMB failed\n");
++		return 0;
++	}
++
++	my_buf->mmap = mmap(0, my_buf->sunxi_bo->sizes[0],
++				PROT_READ | PROT_WRITE, MAP_SHARED,
++				my_buf->drm_fd, map.offset);
++	if (!my_buf->mmap) {
++		printf("[ERROR]mmap failed\n");
++		return 0;
++	}
++
++	return 1;
++}
++
++static void sunxi_unmap_bo(struct buffer *my_buf)
++{
++	 munmap(my_buf->mmap, my_buf->stride * my_buf->height);
++}
++
++static int sunxi_bo_export_to_prime(struct buffer *buffer)
++{
++	return drmPrimeHandleToFD(buffer->drm_fd, buffer->gem_handle,
++		0, &buffer->dmabuf_fd);
++}
++
++static void sunxi_device_destroy(struct buffer *my_buf)
++{
++	;
++}
++#endif
+ 
+ #ifdef HAVE_LIBDRM_INTEL
+ static int
+@@ -386,14 +705,30 @@ drm_device_init(struct buffer *buf)
+ 
+ 	dev->fd = buf->drm_fd;
+ 	dev->name = strdup(version->name);
+-	if (0) {
+-		/* nothing */
++
++	if (!dev) {
++		weston_log("calloc for drm_device failed\n");
++		return -1;
++	}
++
++#ifdef SUNXI_WESTON
++	else if (!strcmp(dev->name, "sunxi-drm")) {
++		dev->alloc_bo = sunxi_alloc_bo;
++		dev->free_bo = sunxi_free_bo;
++		dev->export_bo_to_prime = sunxi_bo_export_to_prime;
++		dev->map_bo = sunxi_map_bo;
++		dev->unmap_bo = sunxi_unmap_bo;
++		dev->device_destroy = sunxi_device_destroy;
+ 	}
++#endif
++
+ #ifdef HAVE_LIBDRM_INTEL
+ 	else if (!strcmp(dev->name, "i915")) {
+ 		buf->bufmgr = drm_intel_bufmgr_gem_init(buf->drm_fd, 32);
+-		if (!buf->bufmgr)
++		if (!buf->bufmgr) {
++			free(dev);
+ 			return 0;
++		}
+ 		dev->alloc_bo = intel_alloc_bo;
+ 		dev->free_bo = intel_free_bo;
+ 		dev->export_bo_to_prime = intel_bo_export_to_prime;
+@@ -437,7 +772,11 @@ drm_connect(struct buffer *my_buf)
+ {
+ 	/* This won't work with card0 as we need to be authenticated; instead,
+ 	 * boot with drm.rnodes=1 and use that. */
++#ifdef SUNXI_WESTON
++	my_buf->drm_fd = open("/dev/dri/card0", O_RDWR);
++#else
+ 	my_buf->drm_fd = open("/dev/dri/renderD128", O_RDWR);
++#endif
+ 	if (my_buf->drm_fd < 0)
+ 		return 0;
+ 
+@@ -763,6 +1102,13 @@ dmabuf_modifiers(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
+ 	struct display *d = data;
+ 	uint64_t modifier = ((uint64_t) modifier_hi << 32) | modifier_lo;
+ 
++#ifdef SUNXI_WESTON
++	printf("support modifiers format:%c%c%c%c\n",
++			(char)(format & 0xff),
++			(char)((format >> 8) & 0xff),
++			(char)((format >> 16) & 0xff),
++			(char)((format >> 24) & 0xff));
++#endif
+ 	switch (format) {
+ 	case DRM_FORMAT_XRGB8888:
+ 		d->xrgb8888_format_found = 1;
+@@ -783,7 +1129,13 @@ dmabuf_modifiers(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
+ static void
+ dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf, uint32_t format)
+ {
+-	/* XXX: deprecated */
++#ifdef SUNXI_WESTON
++	printf("support format:%c%c%c%c\n",
++			(char)(format & 0xff),
++			(char)((format >> 8) & 0xff),
++			(char)((format >> 16) & 0xff),
++			(char)((format >> 24) & 0xff));
++#endif
+ }
+ 
+ static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
+diff --git a/configure.ac b/configure.ac
+index 86307a2..d7f0aa1 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -415,16 +415,20 @@ if ! test "x$enable_simple_dmabuf_drm_client" = "xno"; then
+       AC_DEFINE([HAVE_LIBDRM_ETNAVIV], [1], [Build etnaviv dmabuf client]) have_simple_dmabuf_drm_client=yes,
+       [true])
+ 
++have_simple_dmabuf_drm_client=yes
+   if test "x$have_simple_dmabuf_drm_client" != "xyes" -o \
+ 	  "x$have_simple_dmabuf_libs" = "xno" && \
+      test "x$enable_simple_dmabuf_drm_client" = "xyes"; then
+-    AC_MSG_ERROR([DRM dmabuf client explicitly enabled, but none of libdrm_{intel,freedreno,etnaviv} found])
++    AC_MSG_ERROR([DRM dmabuf client explicitly enabled, but none of libdrm_{intel,freedreno,etnaviv, sunxi} found])
+   fi
+ 
+   if test "x$have_simple_dmabuf_drm_client" = "xyes" -a "x$have_simple_dmabuf_libs" = "xyes"; then
+     enable_simple_dmabuf_drm_client="yes"
+   fi
+ fi
++
++
++enable_simple_dmabuf_drm_client=yes
+ AM_CONDITIONAL(BUILD_SIMPLE_DMABUF_DRM_CLIENT, test "x$enable_simple_dmabuf_drm_client" = "xyes")
+ 
+ AC_ARG_ENABLE(simple-dmabuf-v4l-client,
+diff --git a/libweston/compositor-drm.c b/libweston/compositor-drm.c
+index f530a46..913be4d 100644
+--- a/libweston/compositor-drm.c
++++ b/libweston/compositor-drm.c
+@@ -1097,7 +1097,6 @@ static struct drm_fb *
+ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 		       struct drm_backend *backend, bool is_opaque)
+ {
+-#ifdef HAVE_GBM_FD_IMPORT
+ 	struct drm_fb *fb;
+ 	struct gbm_import_fd_data import_legacy = {
+ 		.width = dmabuf->attributes.width,
+@@ -1106,6 +1105,8 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 		.stride = dmabuf->attributes.stride[0],
+ 		.fd = dmabuf->attributes.fd[0],
+ 	};
++
++#ifdef HAVE_GBM_FD_IMPORT
+ 	struct gbm_import_fd_modifier_data import_mod = {
+ 		.width = dmabuf->attributes.width,
+ 		.height = dmabuf->attributes.height,
+@@ -1113,6 +1114,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 		.num_fds = dmabuf->attributes.n_planes,
+ 		.modifier = dmabuf->attributes.modifier[0],
+ 	};
++#endif
+ 	int i;
+ 
+ 	/* XXX: TODO:
+@@ -1124,16 +1126,21 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 	 * these types of buffers should be handled through buffer
+ 	 * transforms and not as spot-checks requiring specific
+ 	 * knowledge. */
+-	if (dmabuf->attributes.flags)
++	if (dmabuf->attributes.flags) {
++		weston_log("[ERROR]Not support specific content\n");
+ 		return NULL;
++	}
+ 
+ 	fb = zalloc(sizeof *fb);
+-	if (fb == NULL)
++	if (fb == NULL) {
++		weston_log("[ERROR] zalloc for fb failed\n");
+ 		return NULL;
++	}
+ 
+ 	fb->refcnt = 1;
+ 	fb->type = BUFFER_DMABUF;
+ 
++#ifdef HAVE_GBM_FD_IMPORT
+ 	static_assert(ARRAY_LENGTH(import_mod.fds) ==
+ 		      ARRAY_LENGTH(dmabuf->attributes.fd),
+ 		      "GBM and linux_dmabuf FD size must match");
+@@ -1167,14 +1174,20 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 		fb->bo = gbm_bo_import(backend->gbm, GBM_BO_IMPORT_FD_MODIFIER,
+ 				       &import_mod,
+ 				       GBM_BO_USE_SCANOUT);
++#else
++	if (0) {
++		;
++#endif
+ 	} else {
+ 		fb->bo = gbm_bo_import(backend->gbm, GBM_BO_IMPORT_FD,
+ 				       &import_legacy,
+-				       GBM_BO_USE_SCANOUT);
++				       0);
+ 	}
+ 
+-	if (!fb->bo)
++	if (!fb->bo) {
++		weston_log("[ERROR]gbm_bo_import failed\n");
+ 		goto err_free;
++	}
+ 
+ 	fb->width = dmabuf->attributes.width;
+ 	fb->height = dmabuf->attributes.height;
+@@ -1214,19 +1227,26 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+ 	}
+ 
+ 	for (i = 0; i < dmabuf->attributes.n_planes; i++) {
++#ifdef SUNXI_WESTON
++		fb->handles[i] = gbm_bo_get_handle(fb->bo).u32;
++#else
+ 		fb->handles[i] = gbm_bo_get_handle_for_plane(fb->bo, i).u32;
+-		if (!fb->handles[i])
++#endif
++		if (!fb->handles[i]) {
++			weston_log("[ERROR]gbm_bo_get_handle[%d] failed\n", i);
+ 			goto err_free;
++		}
+ 	}
+ 
+-	if (drm_fb_addfb(fb) != 0)
++	if (drm_fb_addfb(fb) != 0) {
++		weston_log("[ERROR]drm_fb_addfb failed\n");
+ 		goto err_free;
++	}
+ 
+ 	return fb;
+ 
+ err_free:
+ 	drm_fb_destroy_dmabuf(fb);
+-#endif
+ 	return NULL;
+ }
+ 
+@@ -1597,12 +1617,15 @@ drm_fb_get_from_view(struct drm_output_state *state, struct weston_view *ev)
+ 	struct linux_dmabuf_buffer *dmabuf;
+ 	struct drm_fb *fb;
+ 
++
++#ifdef SUNXI_WESTON
++#else
+ 	if (ev->alpha != 1.0f)
+ 		return NULL;
+ 
+ 	if (!drm_view_transform_supported(ev, &output->base))
+ 		return NULL;
+-
++#endif
+ 	if (!buffer)
+ 		return NULL;
+ 
+@@ -2892,10 +2915,9 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
+ 	if (output->disable_pending || output->destroy_pending)
+ 		return;
+ 
+-	if (!output->scanout_plane->state_cur->fb) {
++	if (!output->scanout_plane->state_cur->fb)
+ 		/* We can't page flip if there's no mode set */
+ 		goto finish_frame;
+-	}
+ 
+ 	/* Need to smash all state in from scratch; current timings might not
+ 	 * be what we want, page flip might not work, etc.
+@@ -3187,6 +3209,105 @@ out:
+ 	return state;
+ }
+ 
++#ifdef SUNXI_WESTON
++/*
++ *@pixel_format: fourcc format
++ *@return: 0:pixel alpha  1:global alpha 2:mixed alpha
++ */
++static int sunxi_drm_plane_get_alpha_mode(unsigned int pixel_format)
++{
++	switch (pixel_format) {
++	case DRM_FORMAT_ARGB4444:
++	case DRM_FORMAT_ABGR4444:
++	case DRM_FORMAT_RGBA4444:
++	case DRM_FORMAT_BGRA4444:
++
++	case DRM_FORMAT_ARGB1555:
++	case DRM_FORMAT_ABGR1555:
++	case DRM_FORMAT_RGBA5551:
++	case DRM_FORMAT_BGRA5551:
++
++	case DRM_FORMAT_ARGB8888:
++	case DRM_FORMAT_ABGR8888:
++	case DRM_FORMAT_RGBA8888:
++	case DRM_FORMAT_BGRA8888:
++
++	case DRM_FORMAT_ARGB2101010:
++	case DRM_FORMAT_ABGR2101010:
++	case DRM_FORMAT_RGBA1010102:
++	case DRM_FORMAT_BGRA1010102:
++
++		return 0;
++
++	case DRM_FORMAT_C8:
++	case DRM_FORMAT_R8:
++	case DRM_FORMAT_RG88:
++	case DRM_FORMAT_GR88:
++	case DRM_FORMAT_RGB332:
++	case DRM_FORMAT_BGR233:
++	case DRM_FORMAT_XRGB4444:
++	case DRM_FORMAT_XBGR4444:
++	case DRM_FORMAT_RGBX4444:
++	case DRM_FORMAT_BGRX4444:
++	case DRM_FORMAT_XRGB1555:
++	case DRM_FORMAT_XBGR1555:
++	case DRM_FORMAT_RGBX5551:
++	case DRM_FORMAT_BGRX5551:
++	case DRM_FORMAT_RGB565:
++	case DRM_FORMAT_BGR565:
++
++/* 24 bpp RGB */
++	case DRM_FORMAT_RGB888:
++	case DRM_FORMAT_BGR888:
++
++/* 32 bpp RGB */
++	case DRM_FORMAT_XRGB8888:
++	case DRM_FORMAT_XBGR8888:
++	case DRM_FORMAT_RGBX8888:
++	case DRM_FORMAT_BGRX8888:
++
++	case DRM_FORMAT_XRGB2101010:
++	case DRM_FORMAT_XBGR2101010:
++	case DRM_FORMAT_RGBX1010102:
++	case DRM_FORMAT_BGRX1010102:
++
++/* packed YCbCr */
++	case DRM_FORMAT_YUYV:
++	case DRM_FORMAT_YVYU:
++	case DRM_FORMAT_UYVY:
++	case DRM_FORMAT_VYUY:
++
++	case DRM_FORMAT_AYUV:
++
++/* 2 plane YCbCr */
++	case DRM_FORMAT_NV12:
++	case DRM_FORMAT_NV21:
++	case DRM_FORMAT_NV16:
++	case DRM_FORMAT_NV61:
++	case DRM_FORMAT_NV24:
++	case DRM_FORMAT_NV42:
++
++	case DRM_FORMAT_YUV410:
++	case DRM_FORMAT_YVU410:
++	case DRM_FORMAT_YUV411:
++	case DRM_FORMAT_YVU411:
++	case DRM_FORMAT_YUV420:
++	case DRM_FORMAT_YVU420:
++	case DRM_FORMAT_YUV422:
++	case DRM_FORMAT_YVU422:
++	case DRM_FORMAT_YUV444:
++	case DRM_FORMAT_YVU444:
++
++		return 1;
++	}
++
++	weston_log("[ERROR]wrong pixel_format input\n");
++	return 1;
++}
++
++#endif
++
++
+ /**
+  * Update the image for the current cursor surface
+  *
+@@ -3452,8 +3573,11 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		if (ev->output_mask != (1u << output->base.id))
+ 			force_renderer = true;
+ 
++#ifdef SUNXI_WESTON
++#else
+ 		if (!ev->surface->buffer_ref.buffer)
+ 			force_renderer = true;
++#endif
+ 
+ 		/* Ignore views we know to be totally occluded. */
+ 		pixman_region32_init(&clipped_view);
+@@ -3479,6 +3603,8 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		if (pixman_region32_not_empty(&surface_overlap))
+ 			force_renderer = true;
+ 
++#ifdef SUNXI_WESTON
++#else
+ 		/* We do not control the stacking order of overlay planes;
+ 		 * the scanout plane is strictly stacked bottom and the cursor
+ 		 * plane top, but the ordering of overlay planes with respect
+@@ -3488,6 +3614,7 @@ drm_output_propose_state(struct weston_output *output_base,
+ 					  &clipped_view);
+ 		if (pixman_region32_not_empty(&surface_overlap))
+ 			overlay_occluded = true;
++#endif
+ 		pixman_region32_fini(&surface_overlap);
+ 
+ 		/* The cursor plane is 'special' in the sense that we can still
+@@ -3501,8 +3628,16 @@ drm_output_propose_state(struct weston_output *output_base,
+ 		 * been placed in the cursor plane, which can handle alpha. */
+ 		if (!ps && !planes_ok)
+ 			force_renderer = true;
++
++#ifdef SUNXI_WESTON
++		if ((!ps) && (!drm_view_is_opaque(ev))
++			&& pixman_region32_not_empty(&ev->surface->opaque)) {
++			force_renderer = true;
++		}
++#else
+ 		if (!ps && !drm_view_is_opaque(ev))
+ 			force_renderer = true;
++#endif
+ 
+ 		/* Only try to place scanout surfaces in planes-only mode; in
+ 		 * mixed mode, we have already failed to place a view on the
+@@ -6400,7 +6535,7 @@ drm_device_is_kms(struct drm_backend *b, struct udev_device *device)
+ 	const char *filename = udev_device_get_devnode(device);
+ 	const char *sysnum = udev_device_get_sysnum(device);
+ 	drmModeRes *res;
+-	int id, fd;
++	int id = 0, fd;
+ 
+ 	if (!filename)
+ 		return false;
+@@ -6528,6 +6663,7 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
+ 	 * it. */
+ 	assert(!!drm_device == (b->drm.fd >= 0));
+ 
++
+ 	udev_enumerate_unref(e);
+ 	return drm_device;
+ }
+diff --git a/libweston/gl-renderer.c b/libweston/gl-renderer.c
+index 7a761e4..5102f4f 100644
+--- a/libweston/gl-renderer.c
++++ b/libweston/gl-renderer.c
+@@ -2139,7 +2139,11 @@ gl_renderer_query_dmabuf_formats(struct weston_compositor *wc,
+ 
+ 	if (!gr->has_dmabuf_import_modifiers ||
+ 	    !gr->query_dmabuf_formats(gr->egl_display, 0, NULL, &num)) {
++#ifdef SUNXI_WESTON
++		num = ARRAY_LENGTH(fallback_formats);
++#else
+ 		num = gr->has_gl_texture_rg ? ARRAY_LENGTH(fallback_formats) : 2;
++#endif
+ 		fallback = true;
+ 	}
+ 
+diff --git a/libweston/linux-dmabuf.c b/libweston/linux-dmabuf.c
+index 148c61f..56e1ce3 100644
+--- a/libweston/linux-dmabuf.c
++++ b/libweston/linux-dmabuf.c
+@@ -112,11 +112,16 @@ params_add(struct wl_client *client,
+ 	buffer->attributes.offset[plane_idx] = offset;
+ 	buffer->attributes.stride[plane_idx] = stride;
+ 
++
++#ifdef SUNXI_WESTON
++	buffer->attributes.modifier[plane_idx] = DRM_FORMAT_MOD_INVALID;
++#else
+ 	if (wl_resource_get_version(params_resource) < ZWP_LINUX_DMABUF_V1_MODIFIER_SINCE_VERSION)
+ 		buffer->attributes.modifier[plane_idx] = DRM_FORMAT_MOD_INVALID;
+ 	else
+ 		buffer->attributes.modifier[plane_idx] = ((uint64_t)modifier_hi << 32) |
+ 							 modifier_lo;
++#endif
+ 
+ 	buffer->attributes.n_planes++;
+ }
+-- 
+1.9.1
+

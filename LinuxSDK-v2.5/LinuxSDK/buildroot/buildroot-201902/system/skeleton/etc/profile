@@ -1,0 +1,35 @@
+export PATH=@PATH@
+
+if [ "$PS1" ]; then
+	if [ "`id -u`" -eq 0 ]; then
+		export PS1='\u@\h:\w\$ '
+	else
+		export PS1='\u@\h:\w\$ '
+	fi
+fi
+
+export PAGER='/bin/more'
+export EDITOR='/bin/vi'
+
+# Source configuration files from /etc/profile.d
+for i in /etc/profile.d/*.sh ; do
+	if [ -r "$i" ]; then
+		. $i
+	fi
+done
+unset i
+
+export XDG_RUNTIME_DIR=/dev/shm
+
+if [ -x /usr/bin/resize ] && termpath="`tty`"; then
+    # Make sure we are on a serial console (i.e. the device used
+    # starts with /dev/tty),
+    # otherwise we confuse e.g. the eclipse launcher which tries
+    # do use ssh
+    case "$termpath" in
+    /dev/console) resize >/dev/null;;
+    /dev/tty[A-z]*) resize >/dev/null
+    esac
+fi
+
+export LC_CTYPE=zh_CN.UTF-8

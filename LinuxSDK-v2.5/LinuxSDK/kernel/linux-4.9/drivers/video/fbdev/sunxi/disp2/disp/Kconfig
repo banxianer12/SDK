@@ -1,0 +1,5 @@
+config SUNXI_SUPPORT_PQD
+	bool "Support pq debug"
+	default n
+	---help---
+		If you want to support pq debug, select it.

@@ -1,0 +1,15 @@
+diff --git a/Makefile.config b/Makefile.config
+index 45a13c4..ac67923 100644
+--- a/Makefile.config
++++ b/Makefile.config
+@@ -54,9 +54,10 @@ else ifeq ($(VERSION),r3p0)
+ else ifeq ($(VERSION),r3p1)
+ else ifeq ($(VERSION),r3p2-01rel1)
+ else ifeq ($(VERSION),r6p2)
++else ifeq ($(VERSION),r8p1)
+ else
+   $(warning Unknown/unhandled Mali Version "$(VERSION)")
+-  $(warning Use VERSION=(r2p4,r3p0,r3p1,r3p2-01rel1,r6p2) instead)
++  $(warning Use VERSION=(r2p4,r3p0,r3p1,r3p2-01rel1,r6p2,r8p1) instead)
+   $(error Unknown/unhandled Mali Version "$(VERSION)")
+ endif

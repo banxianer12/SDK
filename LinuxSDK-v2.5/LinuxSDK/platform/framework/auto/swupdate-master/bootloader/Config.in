@@ -1,0 +1,93 @@
+choice
+	prompt "Bootloader (U-Boot, ..)"
+	default UBOOT
+	help
+	  Choose the bootloader
+
+config BOOTLOADER_EBG
+	bool "EFI Boot Guard"
+	depends on HAVE_LIBEBGENV
+	depends on HAVE_ZLIB
+	help
+	  Support for EFI Boot Guard
+	  https://github.com/siemens/efibootguard
+
+comment "EFI Boot Guard needs libebgenv and libz"
+	depends on !HAVE_ZLIB || !HAVE_LIBEBGENV
+
+config UBOOT
+	bool "U-Boot"
+	depends on HAVE_LIBUBOOTENV
+	depends on HAVE_ZLIB
+	help
+	  Support for U-Boot
+	  https://www.denx.de/wiki/U-Boot
+
+comment "U-Boot support needs libubootenv and libz"
+	depends on !HAVE_LIBUBOOTENV || !HAVE_ZLIB
+
+config BOOTLOADER_NONE
+	bool "Environment in RAM"
+	help
+	  This simulates the interface to a bootloader.
+	  Bootloader environment is just maitained in RAM
+	  and lost when SWUpdate exits.
+
+config BOOTLOADER_GRUB
+	bool "GRUB"
+	help
+	  Support for GRUB
+	  https://www.gnu.org/software/grub/
+endchoice
+
+config UBOOT_FWENV
+	string "U-Boot Environment Configuration file"
+	depends on UBOOT
+	default "/etc/fw_env.config"
+	help
+	  This is the file described in U-Boot documentation
+	  in the tools directory. It tells where the U-Boot
+	  environment is saved.
+
+choice
+	prompt "Update Status Storage"
+	help
+	  Place to persistently store the update
+	  status for, e.g., communicating it to SWUpdate after
+	  a reboot.
+
+config UPDATE_STATE_CHOICE_NONE
+	bool "None"
+	help
+	  Do not store update status.
+
+config UPDATE_STATE_CHOICE_BOOTLOADER
+	bool "Bootloader"
+	help
+	  Store update status in Bootloader's environment.
+	  Specify Bootloader environment variable name to store update status in.
+
+endchoice
+
+config UPDATE_STATE_BOOTLOADER
+	string "Store Update Status in Bootloader Environment variable"
+	default "ustate"
+	depends on UPDATE_STATE_CHOICE_BOOTLOADER
+	help
+	  Store update information in Bootloader's environment.
+
+config UBOOT_DEFAULTENV
+	string "U-Boot Initial Environment file"
+	depends on UBOOT
+	default "/etc/u-boot-initial-env"
+	help
+	  This is the file with the initial environment delivered
+	  with the bootloader. It is used by SWUpdate if no environment
+	  is found on the storage.
+
+config GRUBENV_PATH
+	string "GRUB Environment block file path"
+	depends on BOOTLOADER_GRUB
+	default "/boot/efi/EFI/BOOT/grub/grubenv"
+	help
+	  Provide path to GRUB environment block file

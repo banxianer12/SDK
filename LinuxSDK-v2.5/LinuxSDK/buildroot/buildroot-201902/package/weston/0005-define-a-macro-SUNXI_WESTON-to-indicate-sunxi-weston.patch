@@ -1,0 +1,114 @@
+From 6a6061964b2e2bf0e16535eaea6a144bba34a39d Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Wed, 10 Jul 2019 19:50:51 +0800
+Subject: [PATCH 5/7] define a macro SUNXI_WESTON to indicate sunxi weston code
+
+Change-Id: I97f5eaefd175c405eaf24a5ce0f841b540093fb0
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ configure.ac               |  2 ++
+ libweston/compositor-drm.c | 10 +++++-----
+ libweston/compositor.h     |  4 +---
+ libweston/gl-renderer.c    |  2 +-
+ 4 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index 50f8e01..86307a2 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -227,6 +227,8 @@ fi
+ PKG_CHECK_MODULES(LIBINPUT_BACKEND, [libinput >= 0.8.0])
+ PKG_CHECK_MODULES(COMPOSITOR, [$COMPOSITOR_MODULES])
+ 
++AC_DEFINE([SUNXI_WESTON], [1], [add specific changes of allwinner weston])
++
+ PKG_CHECK_MODULES(WAYLAND_PROTOCOLS, [wayland-protocols >= 1.13],
+ 		  [ac_wayland_protocols_pkgdatadir=`$PKG_CONFIG --variable=pkgdatadir wayland-protocols`])
+ AC_SUBST(WAYLAND_PROTOCOLS_DATADIR, $ac_wayland_protocols_pkgdatadir)
+diff --git a/libweston/compositor-drm.c b/libweston/compositor-drm.c
+index d49929e..f530a46 100644
+--- a/libweston/compositor-drm.c
++++ b/libweston/compositor-drm.c
+@@ -129,7 +129,7 @@ enum wdrm_plane_property {
+ 	WDRM_PLANE_FB_ID,
+ 	WDRM_PLANE_CRTC_ID,
+ 	WDRM_PLANE_IN_FORMATS,
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 	WDRM_PLANE_ZPOS,
+ 	WDRM_PLANE_ALPHA_MODE,
+ 	WDRM_PLANE_ALPHA_VALUE,
+@@ -177,7 +177,7 @@ static const struct drm_property_info plane_props[] = {
+ 	[WDRM_PLANE_FB_ID] = { .name = "FB_ID", },
+ 	[WDRM_PLANE_CRTC_ID] = { .name = "CRTC_ID", },
+ 	[WDRM_PLANE_IN_FORMATS] = { .name = "IN_FORMATS" },
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 	[WDRM_PLANE_ZPOS] = { .name = "zpos", },
+ 	[WDRM_PLANE_ALPHA_MODE] = { .name = "alpha_mode", },
+ 	[WDRM_PLANE_ALPHA_VALUE] = { .name = "galpha_value", },
+@@ -411,7 +411,7 @@ struct drm_plane_state {
+ 	uint32_t src_w, src_h;
+ 	int32_t dest_x, dest_y;
+ 	uint32_t dest_w, dest_h;
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 	int zpos, alpha_mode, alpha_value;
+ #endif
+ 	bool complete;
+@@ -821,7 +821,7 @@ drm_property_info_free(struct drm_property_info *info, int num_props)
+ 	memset(info, 0, sizeof(*info) * num_props);
+ }
+ 
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ static int drm_plane_get_property_id(struct drm_plane *plane, const char *name)
+ {
+ 	int i;
+@@ -2343,7 +2343,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
+ 		if (ps->fb && !backend->sprites_hidden)
+ 			fb_id = ps->fb->fb_id;
+ 
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 		if (drm_plane_set_property(p, "zpos", ps->zpos) < 0)
+ 			weston_log("[DRM-ERROR]set zpos property failed!\n");
+ 		if (drm_plane_set_property(p, "alpha_mode", ps->alpha_mode) < 0)
+diff --git a/libweston/compositor.h b/libweston/compositor.h
+index ae95331..66a2e55 100644
+--- a/libweston/compositor.h
++++ b/libweston/compositor.h
+@@ -46,8 +46,6 @@ extern "C" {
+ #include "zalloc.h"
+ #include "timeline-object.h"
+ 
+-#define WESTON_USE_SUNXI_DRM
+-
+ struct weston_geometry {
+ 	int32_t x, y;
+ 	int32_t width, height;
+@@ -1163,7 +1161,7 @@ struct weston_compositor {
+ 	struct weston_layer calibrator_layer;
+ 	struct weston_touch_calibrator *touch_calibrator;
+ 
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 	uint64_t plane_zorder;
+ #endif
+ };
+diff --git a/libweston/gl-renderer.c b/libweston/gl-renderer.c
+index a9394a7..7a761e4 100644
+--- a/libweston/gl-renderer.c
++++ b/libweston/gl-renderer.c
+@@ -1909,7 +1909,7 @@ struct yuv_format_descriptor yuv_formats[] = {
+ 			.plane_index = 1
+ 		}}
+ 	}, {
+-#ifdef WESTON_USE_SUNXI_DRM
++#ifdef SUNXI_WESTON
+ 		.format = DRM_FORMAT_NV21,
+ 		.input_planes = 2,
+ 		.output_planes = 2,
+-- 
+1.9.1
+

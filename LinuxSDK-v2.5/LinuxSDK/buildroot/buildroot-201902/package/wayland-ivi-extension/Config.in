@@ -1,0 +1,7 @@
+config BR2_PACKAGE_WAYLAND_IVI_EXTENSION
+	bool "wayland-ivi-extension"
+	depends on BR2_PACKAGE_WESTON
+	help
+	  Wayland-ivi-extension
+
+	  http://github.com/GENIVI/wayland-ivi-extension

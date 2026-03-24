@@ -1,0 +1,4 @@
+LICHEE_KERN_DEFCONF:=sun50iw9p1smp_systemd_defconfig
+LICHEE_BUILDING_SYSTEM:=""
+LICHEE_BR_VER:=201902
+LICHEE_COMPILER_TAR=gcc-linaro-5.3.1-2016.05-x86_64_aarch64-linux-gnu.tar.xz

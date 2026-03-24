@@ -1,0 +1,38 @@
+menuconfig WEBSERVER
+	bool "Web Server"
+	select MONGOOSE
+	help
+	  Enable update from remote using a web server on the target.
+
+if WEBSERVER
+choice
+	prompt "Web Server Type"
+	default MONGOOSE
+	help
+	  Choose the web server
+
+config MONGOOSE
+	bool "mongoose"
+	help
+	  Mongoose embeddded web server
+
+endchoice
+
+config MONGOOSEIPV6
+	bool "IPv6 support"
+	default y
+	depends on MONGOOSE
+	help
+	   It enables ipv6 support into mongoose
+
+config MONGOOSESSL
+	bool "SSL support"
+	depends on MONGOOSE
+	depends on SSL_IMPL_OPENSSL || SSL_IMPL_WOLFSSL || SSL_IMPL_MBEDTLS
+	help
+	   It enables SSL support into mongoose
+
+comment "SSL support needs an SSL implementation"
+	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_WOLFSSL && !SSL_IMPL_MBEDTLS
+
+endif

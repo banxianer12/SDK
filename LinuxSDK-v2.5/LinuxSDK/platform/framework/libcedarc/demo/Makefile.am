@@ -1,0 +1,3 @@
+
+SUBDIRS = vdecoderDemo vencoderDemo
+

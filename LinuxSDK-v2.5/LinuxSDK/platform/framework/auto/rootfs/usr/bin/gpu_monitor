@@ -1,0 +1,20 @@
+#!/bin/sh
+#use to test gpu
+
+if [ $1 = "-s" ]; then
+	echo "set successful! print time interval is "$2"s"
+	time=$2
+else
+	echo "set error! print time interval is 1s"
+	time=1
+fi
+
+mount -t debugfs none /sys/kernel/debug
+
+while true
+do
+	cat /sys/kernel/debug/sunxi_gpu/dump
+	cat /sys/kernel/debug/clk/clk_summary | grep gpu
+	sleep $time
+done
+

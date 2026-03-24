@@ -1,0 +1,129 @@
+From 6eadd9d0843d36edac8dd31db6957d70ee4fbb74 Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Wed, 24 Mar 2021 19:58:23 +0800
+Subject: [PATCH] glmark2: fix segmentation fault
+
+modify log print
+
+Change-Id: I4a831f4a10e0c607ad147ad82e83e30619a9f84c
+Signed-off-by: zhengwanyu <zhengwanyu@allwinnertech.com>
+---
+ src/libmatrix/log.cc | 76 +++++++++++++++-----------------------------
+ 1 file changed, 26 insertions(+), 50 deletions(-)
+
+diff --git a/src/libmatrix/log.cc b/src/libmatrix/log.cc
+index 10603ae..65035c9 100644
+--- a/src/libmatrix/log.cc
++++ b/src/libmatrix/log.cc
+@@ -35,7 +35,7 @@ static const string terminal_color_cyan("\033[36m");
+ static const string terminal_color_yellow("\033[33m");
+ static const string empty;
+ 
+-static void
++void
+ print_prefixed_message(std::ostream& stream, const string& color, const string& prefix,
+                        const string& fmt, va_list ap)
+ {
+@@ -100,74 +100,50 @@ print_prefixed_message(std::ostream& stream, const string& color, const string&
+ void
+ Log::info(const char *fmt, ...)
+ {
+-    static const string infoprefix("Info");
+-    const string& prefix(do_debug_ ? infoprefix : empty);
+-    va_list ap;
+-    va_start(ap, fmt);
+-
+-#ifndef ANDROID
+-    static const string& infocolor(isatty(fileno(stdout)) ? terminal_color_cyan : empty);
+-    const string& color(do_debug_ ? infocolor : empty);
+-    print_prefixed_message(std::cout, color, prefix, fmt, ap);
+-#else
+-    __android_log_vprint(ANDROID_LOG_INFO, appname_.c_str(), fmt, ap);
+-#endif
++     va_list ap;
++     char buf[4096];
++
++     va_start(ap, fmt);
+ 
+-    if (extra_out_)
+-        print_prefixed_message(*extra_out_, empty, prefix, fmt, ap);
++     vsprintf(buf, fmt, ap);
+ 
+-    va_end(ap);
++     printf("%s\n", buf);
++
++     va_end(ap);
+ }
+ 
+ void
+ Log::debug(const char *fmt, ...)
+ {
+-    static const string dbgprefix("Debug");
+-    if (!do_debug_)
+-        return;
+-    va_list ap;
+-    va_start(ap, fmt);
+-
+-#ifndef ANDROID
+-    static const string& dbgcolor(isatty(fileno(stdout)) ? terminal_color_yellow : empty);
+-    print_prefixed_message(std::cout, dbgcolor, dbgprefix, fmt, ap);
+-#else
+-    __android_log_vprint(ANDROID_LOG_DEBUG, appname_.c_str(), fmt, ap);
+-#endif
++     va_list ap;
++     char buf[4096];
++
++     va_start(ap, fmt);
+ 
+-    if (extra_out_)
+-        print_prefixed_message(*extra_out_, empty, dbgprefix, fmt, ap);
++     vsprintf(buf, fmt, ap);
+ 
+-    va_end(ap);
++     printf("%s\n", buf);
++
++     va_end(ap);
+ }
+ 
+ void
+ Log::error(const char *fmt, ...)
+ {
+-    static const string errprefix("Error");
+-    va_list ap;
+-    va_start(ap, fmt);
+-
+-#ifndef ANDROID
+-    static const string& errcolor(isatty(fileno(stderr)) ? terminal_color_red : empty);
+-    print_prefixed_message(std::cerr, errcolor, errprefix, fmt, ap);
+-#else
+-    __android_log_vprint(ANDROID_LOG_ERROR, appname_.c_str(), fmt, ap);
+-#endif
++     va_list ap;
++     char buf[4096];
++
++     va_start(ap, fmt);
+ 
+-    if (extra_out_)
+-        print_prefixed_message(*extra_out_, empty, errprefix, fmt, ap);
++     vsprintf(buf, fmt, ap);
+ 
+-    va_end(ap);
++     printf("%s\n", buf);
++
++     va_end(ap);
+ }
+ 
+ void
+ Log::flush()
+ {
+-#ifndef ANDROID
+-    std::cout.flush();
+-    std::cerr.flush();
+-#endif
+-    if (extra_out_)
+-        extra_out_->flush();
++;
+ }
+-- 
+2.29.0
+

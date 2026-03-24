@@ -1,0 +1,589 @@
+From d2388a638c1d5295c97d77780f1dd5ca7416b13d Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Tue, 23 Mar 2021 16:01:32 +0800
+Subject: [PATCH] glmark2: support fbdev
+
+---
+ src/canvas-generic.cpp     |  12 ++-
+ src/gl-state-egl.cpp       |   8 +-
+ src/libmatrix/mat.h        |  12 +--
+ src/libmatrix/program.cc   |   2 +
+ src/main.cpp               |   9 ++
+ src/native-state-fbdev.cpp | 171 +++++++++++++++++++++++++++++++++++++
+ src/native-state-fbdev.h   |  68 +++++++++++++++
+ src/options.cpp            |   5 ++
+ src/options.h              |   1 +
+ src/scene-buffer.cpp       |   1 +
+ src/wscript_build          |   9 +-
+ wscript                    |  14 ++-
+ 12 files changed, 297 insertions(+), 15 deletions(-)
+ create mode 100755 src/native-state-fbdev.cpp
+ create mode 100755 src/native-state-fbdev.h
+
+diff --git a/src/canvas-generic.cpp b/src/canvas-generic.cpp
+index b0e774e..8fdf9ae 100644
+--- a/src/canvas-generic.cpp
++++ b/src/canvas-generic.cpp
+@@ -33,6 +33,7 @@
+ /******************
+  * Public methods *
+  ******************/
++extern char *argv_char[8];
+ 
+ bool
+ CanvasGeneric::init()
+@@ -250,8 +251,13 @@ CanvasGeneric::resize_no_viewport(int width, int height)
+ 
+     native_window_ = native_state_.window(cur_properties);
+ 
+-    width_ = cur_properties.width;
+-    height_ = cur_properties.height;
++    if (Options::resolution && Options::offscreen){
++	    width_ = atoi(argv_char[3]);
++	    height_ = atoi(argv_char[4]);
++    } else {
++        width_ = cur_properties.width;
++        height_ = cur_properties.height;
++    }
+ 
+     if (color_renderbuffer_) {
+         glBindRenderbuffer(GL_RENDERBUFFER, color_renderbuffer_);
+@@ -274,7 +280,9 @@ CanvasGeneric::resize_no_viewport(int width, int height)
+ bool
+ CanvasGeneric::do_make_current()
+ {
++#ifndef IMG_GPU
+     gl_state_.init_surface(native_window_);
++#endif
+ 
+     if (!gl_state_.valid()) {
+         Log::error("CanvasGeneric: Invalid EGL state\n");
+diff --git a/src/gl-state-egl.cpp b/src/gl-state-egl.cpp
+index 1d4a1e4..334c62a 100644
+--- a/src/gl-state-egl.cpp
++++ b/src/gl-state-egl.cpp
+@@ -1,5 +1,4 @@
+-//
+-// Copyright � 2012 Linaro Limited
++// Copyright 2012 Linaro Limited
+ //
+ // This file is part of the glmark2 OpenGL (ES) 2.0 benchmark.
+ //
+@@ -415,8 +414,13 @@ GLStateEGL::gotValidDisplay()
+     if (egl_display_)
+         return true;
+ 
++#ifdef HAS_FBDEV
++    egl_display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
++    if (egl_display_ == EGL_NO_DISPLAY) {
++#else
+     egl_display_ = eglGetDisplay(native_display_);
+     if (!egl_display_) {
++#endif
+         Log::error("eglGetDisplay() failed with error: 0x%x\n", eglGetError());
+         return false;
+     }
+diff --git a/src/libmatrix/mat.h b/src/libmatrix/mat.h
+index a55cd45..7625970 100644
+--- a/src/libmatrix/mat.h
++++ b/src/libmatrix/mat.h
+@@ -110,14 +110,14 @@ public:
+     //       throw to avoid undefined behavior.
+     tmat2& inverse()
+ #ifdef USE_EXCEPTIONS
+-        throw(std::runtime_error)
++        //throw(std::runtime_error)
+ #endif // USE_EXCEPTIONS
+     {
+         T d(determinant());
+         if (d == static_cast<T>(0))
+         {
+ #ifdef USE_EXCEPTIONS
+-            throw std::runtime_error("Matrix is noninvertible!!!!");
++            //throw std::runtime_error("Matrix is noninvertible!!!!");
+ #else // !USE_EXCEPTIONS
+             Log::error("Matrix is noninvertible!!!!\n");
+             return *this;
+@@ -412,14 +412,14 @@ public:
+     //       throw to avoid undefined behavior.
+     tmat3& inverse()
+ #ifdef USE_EXCEPTIONS
+-        throw(std::runtime_error)
++        //throw(std::runtime_error)
+ #endif // USE_EXCEPTIONS
+     {
+         T d(determinant());
+         if (d == static_cast<T>(0))
+         {
+ #ifdef USE_EXCEPTIONS
+-            throw std::runtime_error("Matrix is noninvertible!!!!");
++            //throw std::runtime_error("Matrix is noninvertible!!!!");
+ #else // !USE_EXCEPTIONS
+             Log::error("Matrix is noninvertible!!!!\n");
+             return *this;
+@@ -794,14 +794,14 @@ public:
+     //       throw to avoid undefined behavior.
+     tmat4& inverse()
+ #ifdef USE_EXCEPTIONS
+-        throw(std::runtime_error)
++        //throw(std::runtime_error)
+ #endif // USE_EXCEPTIONS
+     {
+         T d(determinant());
+         if (d == static_cast<T>(0))
+         {
+ #ifdef USE_EXCEPTIONS
+-            throw std::runtime_error("Matrix is noninvertible!!!!");
++            //throw std::runtime_error("Matrix is noninvertible!!!!");
+ #else // !USE_EXCEPTIONS
+             Log::error("Matrix is noninvertible!!!!\n");
+             return *this;
+diff --git a/src/libmatrix/program.cc b/src/libmatrix/program.cc
+index b27298b..f8b1abd 100644
+--- a/src/libmatrix/program.cc
++++ b/src/libmatrix/program.cc
+@@ -17,6 +17,8 @@
+ #include "gl-if.h"
+ #include "program.h"
+ 
++typedef char GLchar;
++
+ using std::string;
+ using LibMatrix::mat4;
+ using LibMatrix::mat3;
+diff --git a/src/main.cpp b/src/main.cpp
+index b84b827..659b54c 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -42,6 +42,8 @@
+ #include "native-state-mir.h"
+ #elif GLMARK2_USE_WAYLAND
+ #include "native-state-wayland.h"
++#elif GLMARK2_USE_FBDEV
++#include "native-state-fbdev.h"
+ #endif
+ 
+ #if GLMARK2_USE_EGL
+@@ -54,6 +56,7 @@ using std::vector;
+ using std::map;
+ using std::string;
+ 
++char *argv_char[8];
+ static void
+ list_scenes()
+ {
+@@ -150,6 +153,10 @@ main(int argc, char *argv[])
+         return 0;
+     }
+ 
++    for(int i = 0; i < argc; ++i){
++        argv_char[i] = argv[i];
++    }
++
+     /* Force 800x600 output for validation */
+     if (Options::validate &&
+         Options::size != std::pair<int,int>(800, 600))
+@@ -168,6 +175,8 @@ main(int argc, char *argv[])
+     NativeStateMir native_state;
+ #elif GLMARK2_USE_WAYLAND
+     NativeStateWayland native_state;
++#elif GLMARK2_USE_FBDEV
++    NativeStateFBDEV native_state;
+ #endif
+ 
+ #if GLMARK2_USE_EGL
+diff --git a/src/native-state-fbdev.cpp b/src/native-state-fbdev.cpp
+new file mode 100755
+index 0000000..3752ce9
+--- /dev/null
++++ b/src/native-state-fbdev.cpp
+@@ -0,0 +1,171 @@
++/*
++ * Copyright 漏 2012 Linaro Limited
++ * Copyright 漏 2013 Canonical Ltd
++ *
++ * This file is part of the glmark2 OpenGL (ES) 2.0 benchmark.
++ *
++ * glmark2 is free software: you can redistribute it and/or modify it under the
++ * terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later
++ * version.
++ *
++ * glmark2 is distributed in the hope that it will be useful, but WITHOUT ANY
++ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
++ * details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * glmark2.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ * Authors:
++ *  Simon Que 
++ *  Jesse Barker
++ *  Alexandros Frantzis
++ *  Wladimir J. van der Laan
++ */
++#include "native-state-fbdev.h"
++#include "log.h"
++#include "util.h"
++
++#include <fcntl.h>
++#include <unistd.h>
++#include <sys/ioctl.h>
++#include <linux/fb.h>
++#include "options.h"
++#if HAS_MALI
++#include <EGL/egl.h>
++#endif
++#ifdef ANDROID
++#define FBDEV_DEV "/dev/graphics/fb"
++#else
++#define FBDEV_DEV "/dev/fb"
++#endif
++
++/******************
++ * Public methods *
++ ******************/
++extern char *argv_char[8];
++
++bool
++NativeStateFBDEV::init_display()
++{
++    if (fd == -1)
++        return init();
++    return true;
++}
++
++void*
++NativeStateFBDEV::display()
++{
++    return reinterpret_cast<void*>(fd);
++}
++
++bool
++NativeStateFBDEV::create_window(WindowProperties const& /*properties*/)
++{
++    unsigned int resolution_width;
++    unsigned int resolution_height;
++    struct fb_var_screeninfo fb_var;
++
++    if (fd == -1) {
++        Log::error("Error: display has not been initialized!\n");
++        return false;
++    }
++    if (ioctl(fd, FBIOGET_VSCREENINFO, &fb_var))
++    {
++        Log::error("Error: cannot get variable frame buffer info\n");
++        return false;
++    }
++    
++    if (Options::resolution) {
++        resolution_width = atoi(argv_char[2]);
++        resolution_height = atoi(argv_char[3]);
++            if(!Options::offscreen){
++                if(resolution_width > fb_var.xres ||
++		        resolution_height > fb_var.yres){
++                    printf("Error:resolution > fb\n");
++                    return false;
++                } else {
++                    fb_var.xres = resolution_width;
++                    fb_var.yres = resolution_height;
++                }
++            }
++    } else if (Options::offscreen) {
++             winprops.width = fb_var.xres;
++             winprops.height = fb_var.yres;
++             winprops.fullscreen = true;
++    }
++
++    winprops.width = fb_var.xres;
++    winprops.height = fb_var.yres;
++    winprops.fullscreen = true;
++
++    return true;
++}
++
++void*
++NativeStateFBDEV::window(WindowProperties& properties)
++{
++    properties = winprops;
++#ifdef HAS_MALI
++    native_window.height = winprops.height;
++    native_window.width = winprops.width;
++    return reinterpret_cast<void*>(&native_window);
++#else
++    return NULL;
++#endif
++}
++
++void
++NativeStateFBDEV::visible(bool /*visible*/)
++{
++}
++
++bool
++NativeStateFBDEV::should_quit()
++{
++    return should_quit_;
++}
++
++void
++NativeStateFBDEV::flip()
++{
++}
++
++/*******************
++ * Private methods *
++ *******************/
++
++bool
++NativeStateFBDEV::init()
++{
++    std::string devname;
++    int num = 0; /* always fb0 for now */
++
++    devname = std::string(FBDEV_DEV) + Util::toString(num);
++    fd = open(devname.c_str(), O_RDWR);
++    if(fd == -1)
++    {
++        Log::error("Error: Cannot open framebuffer device %s\n", devname.c_str());
++        return false;
++    }
++
++    signal(SIGINT, &NativeStateFBDEV::quit_handler);
++
++    return true;
++}
++
++volatile std::sig_atomic_t NativeStateFBDEV::should_quit_(false);
++
++void
++NativeStateFBDEV::quit_handler(int /*signo*/)
++{
++    should_quit_ = true;
++}
++
++void
++NativeStateFBDEV::cleanup()
++{
++    close(fd);
++    fd = -1;
++} 
+diff --git a/src/native-state-fbdev.h b/src/native-state-fbdev.h
+new file mode 100755
+index 0000000..db5650b
+--- /dev/null
++++ b/src/native-state-fbdev.h
+@@ -0,0 +1,68 @@
++/*
++ * Copyright 漏 2012 Linaro Limited
++ * Copyright 漏 2013 Canonical Ltd
++ *
++ * This file is part of the glmark2 OpenGL (ES) 2.0 benchmark.
++ *
++ * glmark2 is free software: you can redistribute it and/or modify it under the
++ * terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 3 of the License, or (at your option) any later
++ * version.
++ *
++ * glmark2 is distributed in the hope that it will be useful, but WITHOUT ANY
++ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
++ * details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * glmark2.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ * Authors:
++ *  Simon Que 
++ *  Jesse Barker
++ *  Alexandros Frantzis
++ *  Wladimir J. van der Laan
++ */
++#ifndef GLMARK2_NATIVE_STATE_FBDEV_H_
++#define GLMARK2_NATIVE_STATE_FBDEV_H_
++
++#include "native-state.h"
++#include <csignal>
++#include <cstring>
++#define HAS_MALI 1	
++#ifdef HAS_MALI
++#include <EGL/egl.h>
++#endif
++
++class NativeStateFBDEV : public NativeState
++{
++public:
++    NativeStateFBDEV() :
++        fd(-1) {}
++    ~NativeStateFBDEV() { cleanup(); }
++
++    bool init_display();
++    void* display();
++    bool create_window(WindowProperties const& properties);
++    void* window(WindowProperties& properties);
++    void visible(bool v);
++    bool should_quit();
++    void flip();
++
++private:
++    static void quit_handler(int signum);
++    static volatile std::sig_atomic_t should_quit_;
++    int fd;
++    WindowProperties winprops;
++#ifdef HAS_MALI
++    struct mali_native_window {
++        unsigned short width;
++        unsigned short height;
++    };
++    struct mali_native_window native_window;
++#endif
++    bool init();
++    void cleanup();
++};
++
++#endif /* GLMARK2_NATIVE_STATE_FBDEV_H_ */
+diff --git a/src/options.cpp b/src/options.cpp
+index 05cd617..06638e7 100644
+--- a/src/options.cpp
++++ b/src/options.cpp
+@@ -41,6 +41,7 @@ bool Options::reuse_context = false;
+ bool Options::run_forever = false;
+ bool Options::annotate = false;
+ bool Options::offscreen = false;
++bool Options::resolution = false;
+ GLVisualConfig Options::visual_config;
+ 
+ static struct option long_options[] = {
+@@ -50,6 +51,7 @@ static struct option long_options[] = {
+     {"validate", 0, 0, 0},
+     {"frame-end", 1, 0, 0},
+     {"off-screen", 0, 0, 0},
++    {"resolution", 0, 0, 0},
+     {"visual-config", 1, 0, 0},
+     {"reuse-context", 0, 0, 0},
+     {"run-forever", 0, 0, 0},
+@@ -125,6 +127,7 @@ Options::print_help()
+            "                         running the benchmarks\n"
+            "      --frame-end METHOD How to end a frame [default,none,swap,finish,readpixels]\n"
+            "      --off-screen       Render to an off-screen surface\n"
++	   "      --resolution       screen resolution\n"
+            "      --visual-config C  The visual configuration to use for the rendering\n"
+            "                         target: 'red=R:green=G:blue=B:alpha=A:buffer=BUF'.\n"
+            "                         The parameters may be defined in any order, and any\n"
+@@ -175,6 +178,8 @@ Options::parse_args(int argc, char **argv)
+             Options::frame_end = frame_end_from_str(optarg);
+         else if (!strcmp(optname, "off-screen"))
+             Options::offscreen = true;
++	else if (!strcmp(optname, "resolution"))
++	    Options::resolution = true;
+         else if (!strcmp(optname, "visual-config"))
+             Options::visual_config = GLVisualConfig(optarg);
+         else if (!strcmp(optname, "reuse-context"))
+diff --git a/src/options.h b/src/options.h
+index f62e02a..83ed70a 100644
+--- a/src/options.h
++++ b/src/options.h
+@@ -53,6 +53,7 @@ struct Options {
+     static bool run_forever;
+     static bool annotate;
+     static bool offscreen;
++    static bool resolution;
+     static GLVisualConfig visual_config;
+ };
+ 
+diff --git a/src/scene-buffer.cpp b/src/scene-buffer.cpp
+index 80871aa..ef3a0b9 100644
+--- a/src/scene-buffer.cpp
++++ b/src/scene-buffer.cpp
+@@ -183,6 +183,7 @@ private:
+     double wave_k_;
+     double wave_period_;
+     double wave_full_period_;
++    double wave_fill_;
+     double wave_velocity_;
+ 
+     std::vector<double> displacement_;
+diff --git a/src/wscript_build b/src/wscript_build
+index ed0f6ea..8b07161 100644
+--- a/src/wscript_build
++++ b/src/wscript_build
+@@ -20,7 +20,8 @@ flavor_sources = {
+   'mir-gl' : common_flavor_sources + ['native-state-mir.cpp', 'gl-state-egl.cpp'],
+   'mir-glesv2' : common_flavor_sources + ['native-state-mir.cpp', 'gl-state-egl.cpp'],
+   'wayland-gl' : common_flavor_sources + ['native-state-wayland.cpp', 'gl-state-egl.cpp'],
+-  'wayland-glesv2' : common_flavor_sources + ['native-state-wayland.cpp', 'gl-state-egl.cpp']
++  'wayland-glesv2' : common_flavor_sources + ['native-state-wayland.cpp', 'gl-state-egl.cpp'],
++  'fbdev-glesv2' : ['main.cpp', 'canvas-generic.cpp', 'native-state-fbdev.cpp', 'gl-state-egl.cpp']
+ }
+ flavor_uselibs = {
+   'x11-gl' : ['x11', 'gl', 'matrix-gl', 'common-gl'],
+@@ -30,7 +31,8 @@ flavor_uselibs = {
+   'mir-gl' : ['mirclient', 'egl', 'gl', 'matrix-gl', 'common-gl'],
+   'mir-glesv2' : ['mirclient', 'egl', 'glesv2', 'matrix-glesv2', 'common-glesv2'],
+   'wayland-gl' : ['wayland-client', 'wayland-egl', 'egl', 'gl', 'matrix-gl', 'common-gl'],
+-  'wayland-glesv2' : ['wayland-client', 'wayland-egl', 'egl', 'glesv2', 'matrix-glesv2', 'common-glesv2']
++  'wayland-glesv2' : ['wayland-client', 'wayland-egl', 'egl', 'glesv2', 'matrix-glesv2', 'common-glesv2'],
++  'fbdev-glesv2' : ['egl', 'glesv2', 'matrix-glesv2', 'gl', 'common-glesv2']
+ }
+ flavor_defines = {
+   'x11-gl' : ['GLMARK2_USE_X11', 'GLMARK2_USE_GL', 'GLMARK2_USE_GLX'],
+@@ -40,7 +42,8 @@ flavor_defines = {
+   'mir-gl' : ['GLMARK2_USE_MIR', 'GLMARK2_USE_GL', 'GLMARK2_USE_EGL'],
+   'mir-glesv2' : ['GLMARK2_USE_MIR', 'GLMARK2_USE_GLESv2', 'GLMARK2_USE_EGL'],
+   'wayland-gl' : ['GLMARK2_USE_WAYLAND', 'GLMARK2_USE_GL', 'GLMARK2_USE_EGL'],
+-  'wayland-glesv2' : ['GLMARK2_USE_WAYLAND', 'GLMARK2_USE_GLESv2', 'GLMARK2_USE_EGL']
++  'wayland-glesv2' : ['GLMARK2_USE_WAYLAND', 'GLMARK2_USE_GLESv2', 'GLMARK2_USE_EGL'],
++  'fbdev-glesv2' : ['GLMARK2_USE_FBDEV', 'GLMARK2_USE_GLESv2', 'GLMARK2_USE_EGL', 'MESA_EGL_NO_X11_HEADERS']
+ }
+ 
+ includes = ['.', 'scene-ideas', 'scene-terrain']
+diff --git a/wscript b/wscript
+index f9f2a17..9ac9c52 100644
+--- a/wscript
++++ b/wscript
+@@ -15,7 +15,8 @@ FLAVORS = {
+     'mir-gl' : 'glmark2-mir',
+     'mir-glesv2' : 'glmark2-es2-mir',
+     'wayland-gl' : 'glmark2-wayland',
+-    'wayland-glesv2' : 'glmark2-es2-wayland'
++    'wayland-glesv2' : 'glmark2-es2-wayland',
++    'fbdev-glesv2' : 'glmark2-es2-fbdev'
+ }
+ FLAVORS_STR = ", ".join(FLAVORS.keys())
+ 
+@@ -42,6 +43,10 @@ def options(opt):
+                    help = "a list of flavors to build (%s, all)" % FLAVORS_STR)
+     opt.parser.set_default('flavors', [])
+ 
++    opt.add_option('--for-fbdev', action='store_true', dest = 'fbdev',
++                    default = False, help='enable fbdev support')
++    opt.add_option('--img_gpu', action='store_true', dest = 'img_gpu',
++                   default = False, help='enable img gpu support')
+     opt.add_option('--no-debug', action='store_false', dest = 'debug',
+                    default = True, help='disable compiler debug information')
+     opt.add_option('--no-opt', action='store_false', dest = 'opt',
+@@ -123,6 +128,7 @@ def configure(ctx):
+             ctx.check_cfg(package = pkg, uselib_store = uselib, atleast_version=atleast,
+                           args = '--cflags --libs', mandatory = mandatory)
+ 
++    ctx.env.append_unique('CXXFLAGS', '-Werror -Wall -Wextra -Wnon-virtual-dtor'.split(' '))
+ 
+     # Prepend CXX flags so that they can be overriden by the
+     # CXXFLAGS environment variable
+@@ -130,7 +136,11 @@ def configure(ctx):
+         ctx.env.prepend_value('CXXFLAGS', '-O2')
+     if ctx.options.debug:
+         ctx.env.prepend_value('CXXFLAGS', '-g')
+-    ctx.env.prepend_value('CXXFLAGS', '-std=c++14 -Wall -Wextra -Wnon-virtual-dtor'.split(' '))
++
++    if ctx.options.fbdev:
++        ctx.env.append_unique('DEFINES','HAS_FBDEV=1')
++    if ctx.options.img_gpu:
++	ctx.env.append_unique('DEFINES','IMG_GPU=1')
+ 
+     ctx.env.HAVE_EXTRAS = False
+     if ctx.options.extras_path is not None:
+-- 
+2.29.0
+

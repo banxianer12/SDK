@@ -1,0 +1,43 @@
+From 148e5b69685f55c98c7c6e1b5adf223cf66e54f9 Mon Sep 17 00:00:00 2001
+From: zhengwanyu <zhengwanyu@allwinnertech.com>
+Date: Wed, 22 May 2019 16:59:01 +0800
+Subject: [PATCH 2/2] wayland-ivi-extension: fix compile error under wston5.0
+
+Change-Id: I09012e248016ffea3757942f388c7ddc0f183f9c
+---
+ weston-ivi-shell/src/ivi-controller.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/weston-ivi-shell/src/ivi-controller.c b/weston-ivi-shell/src/ivi-controller.c
+index 6d95c88..1b6ac82 100644
+--- a/weston-ivi-shell/src/ivi-controller.c
++++ b/weston-ivi-shell/src/ivi-controller.c
+@@ -46,6 +46,10 @@
+ 
+ #define IVI_CLIENT_SURFACE_ID_ENV_NAME "IVI_CLIENT_SURFACE_ID"
+ 
++#ifndef SUPPORT_WESTON_5.0
++#define SUPPORT_WESTON_5.0
++#endif
++
+ struct ivilayer;
+ struct iviscreen;
+ 
+@@ -1276,8 +1280,14 @@ controller_screenshot_notify(struct wl_listener *listener, void *data)
+     if (output->compositor->capabilities & WESTON_CAP_CAPTURE_YFLIP)
+         flip_y(stride, height, readpixs);
+ 
++#ifdef SUPPORT_WESTON_5.0
++    ivi_screenshot_send_done(l->screenshot, fd, width, height, stride,
++                             shm_format, output->frame_time.tv_sec * 1000
++			     + output->frame_time.tv_nsec / 1000000);
++#else
+     ivi_screenshot_send_done(l->screenshot, fd, width, height, stride,
+                              shm_format, output->frame_time);
++#endif
+ 
+ err_readpix:
+     munmap(readpixs, size);
+-- 
+1.9.1
+

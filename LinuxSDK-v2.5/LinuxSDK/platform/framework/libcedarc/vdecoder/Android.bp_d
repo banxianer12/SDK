@@ -1,0 +1,45 @@
+cc_library_shared {
+    name: "libvdecoder",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "fbm.c",
+        "pixel_format.c",
+        "vdecoder.c",
+        "sbm/sbmStream.c",
+        "sbm/sbmFrameBase.c",
+        "sbm/sbmFrameH264.c",
+        "sbm/sbmFrameH265.c",
+	"sbm/sbmFrameAvs2.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/ve/include",
+        "frameworks/av/media/libcedarc/base/include",
+        "frameworks/av/media/libcedarc/base/include/gralloc_metadata",
+    ],
+
+    local_include_dirs: [
+        "include",
+        "videoengine",
+    ],
+
+    cflags: [
+        "-Wno-implicit-function-declaration",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libui",
+        "libdl",
+        "libVE",
+        "libcdc_base",
+        "libvideoengine",
+        "libMemAdapter",
+    ],
+
+}

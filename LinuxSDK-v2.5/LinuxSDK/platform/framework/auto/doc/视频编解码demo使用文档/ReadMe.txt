@@ -1,0 +1,7 @@
+1、目录中的demoVdecoder用的是cedarx/demo目录下的解码demo,该demo的功能是将带有封装的文件进行解码，并保存解码后的图像
+需要注意的是cedarc/demo目录下同样存在一个跟解码相关的demo(vdecoderDemo),该demo的功能是对裸视频数据（.264/.265）文件进行解码。
+此次提供的文档针对的是cedarx/demo目录下的解码demo，cedarc目录下的解码demo随后会进行提供。
+
+2、目录中的vencoderDemo用的是cedarc/demo目录下的编码demo,该demo的功能是将YUV数据编码成码流，
+需要注意的是cedarx/demo目录下也有一个跟编码相关的demo(demoVencoder)，鉴于该demo的功能和cedarc/demo目录下的编码demo一样，
+将cedarx/demo中的demoVencoder删除，后续编码功能的验证使用cedarc中的demo进行。
